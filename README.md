@@ -20,7 +20,7 @@ Every number is measured on a network the model **never trained on**, using only
 scored, so this is what you would get running live at a new company.
 
 > **Slides:** [`Presentation.pptx`](Presentation.pptx) is our pitch deck. [`presentation/AlertLens.pptx`](presentation/AlertLens.pptx) is the extended version that explains the whole solution in plain
-> language and follow one real attack from raw log line to AI report.
+> language and follows one real attack from raw log line to AI report.
 
 ![Incidents view of the AlertLens dashboard](presentation/figs/app_incidents.png)
 
