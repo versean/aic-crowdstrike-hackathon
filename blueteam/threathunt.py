@@ -11,10 +11,8 @@ import os
 import duckdb
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 from sklearn.ensemble import IsolationForest
 
 from blueteam import llm
@@ -22,6 +20,7 @@ from blueteam.ingest import DATA_DIR
 
 ROOT = DATA_DIR.parent
 ENV_PATH = ROOT / ".env"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 def read_env_file(path) -> dict:
     """Read KEY=VALUE pairs straight from a .env file (no python-dotenv needed)."""
@@ -177,49 +176,6 @@ def run_ml_pipeline(df: pd.DataFrame, contamination: float, trees: int) -> pd.Da
 # ==========================================
 # 4. CHART BUILDERS
 # ==========================================
-def build_timeline(df: pd.DataFrame, log_y: bool) -> go.Figure:
-    """Stacked hourly log volume (left axis) plus anomalous-profile count (right axis).
-    Aggregating first avoids thousands of stacked per-IP bars, and an explicit bar width
-    keeps bars visible on a datetime axis."""
-    g = (
-        df.groupby(["time_window", "Status"], as_index=False)
-        .agg(total_events=("total_events", "sum"), profiles=("src_ip", "count"))
-    )
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    for status in (NORMAL, ANOMALY):
-        d = g[g["Status"] == status]
-        fig.add_trace(go.Bar(
-            x=d["time_window"], y=d["total_events"], name=f"{status} (events)",
-            marker_color=STATUS_COLORS[status], width=3600 * 1000 * 0.85, customdata=d["profiles"],
-            hovertemplate="%{y:,} events from %{customdata:,} IP profiles<extra>" + status + "</extra>",
-        ), secondary_y=False)
-
-    an = g[g["Status"] == ANOMALY]
-    if len(an):
-        fig.add_trace(go.Scatter(
-            x=an["time_window"], y=an["profiles"], name="Anomalous IP profiles (right axis)",
-            mode="lines+markers", line=dict(color="#ffd43b", width=2), marker=dict(size=5),
-            hovertemplate="%{y:,} anomalous profiles<extra></extra>",
-        ), secondary_y=True)
-        peak = an.loc[an["profiles"].idxmax()]
-        fig.add_annotation(
-            x=peak["time_window"], y=peak["profiles"], yref="y2", text=f"Peak: {int(peak['profiles'])} anomalous profiles",
-            showarrow=True, arrowhead=2, ax=0, ay=-40, font=dict(color="#ffd43b", size=11),
-        )
-
-    fig.update_layout(
-        template="plotly_dark", barmode="stack", bargap=0, hovermode="x unified", height=430,
-        title=dict(text="<b>SOC Timeline</b><br><sup>Log volume per hour (bars) vs. anomalous IP profiles (line)</sup>",
-                   x=0, xanchor="left"),
-        margin=dict(l=10, r=10, t=75, b=10),
-        legend=dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"), legend_title_text="",
-    )
-    fig.update_xaxes(type="date", title_text="Hour (UTC)", rangeslider=dict(visible=True, thickness=0.06))
-    fig.update_yaxes(title_text="Log events per hour (stacked)", secondary_y=False, type="log" if log_y else "linear")
-    fig.update_yaxes(title_text="Anomalous IP profiles per hour", secondary_y=True, showgrid=False, rangemode="tozero")
-    return fig
-
-
 def build_3d(df: pd.DataFrame, max_normal: int, selected: pd.Series | None = None) -> go.Figure:
     """Two traces: a faint, small, sampled cloud for normal traffic and large,
     risk-sized markers for anomalies. Log axes spread out the heavy tails."""
@@ -294,259 +250,6 @@ def build_3d(df: pd.DataFrame, max_normal: int, selected: pd.Series | None = Non
     return fig
 
 
-def build_click_map(df: pd.DataFrame, max_normal: int, x_col: str, y_col: str) -> go.Figure:
-    """2D scatter whose points can be clicked to drive the Point Inspector.
-    Each point carries its dataframe row index in customdata."""
-    normal = df[df["Status"] == NORMAL]
-    if len(normal) > max_normal:
-        normal = normal.sample(max_normal, random_state=42)
-    anomalies = df[df["Status"] == ANOMALY]
-
-    def tx(s):
-        return np.log10(1 + s) if s.name in COUNT_COLS else s
-
-    def hover(d):
-        return (
-            "<b>" + d["src_ip"].astype(str) + "</b> · risk "
-            + d["risk_pct"].round(0).astype(int).astype(str) + "<br>"
-            + d["time_window"].dt.strftime("%m-%d %H:%M")
-        )
-
-    fig = go.Figure()
-    for d, name, marker in [
-        (normal, NORMAL, dict(size=5, color="#5e81ac", opacity=0.4)),
-        (anomalies, ANOMALY, dict(size=9, color=anomalies["risk_pct"], colorscale="YlOrRd",
-                                  cmin=0, cmax=100, opacity=0.95,
-                                  line=dict(color="white", width=0.5))),
-    ]:
-        if len(d):
-            fig.add_trace(go.Scatter(
-                x=tx(d[x_col]), y=tx(d[y_col]), mode="markers", name=name, marker=marker,
-                customdata=d.index.to_numpy(), text=hover(d), hoverinfo="text",
-            ))
-    lx = FEATURE_LABELS[x_col] + (" (log scale)" if x_col in COUNT_COLS else "")
-    ly = FEATURE_LABELS[y_col] + (" (log scale)" if y_col in COUNT_COLS else "")
-    fig.update_layout(
-        template="plotly_dark", margin=dict(l=0, r=0, b=0, t=10), height=420,
-        xaxis_title=lx, yaxis_title=ly, legend=dict(orientation="h", y=1.08),
-        hoverlabel=dict(font_size=11, align="left", bgcolor="#1b1f2a"), clickmode="event+select",
-    )
-    if x_col in COUNT_COLS:
-        fig.update_xaxes(**log_axis(df[x_col]))
-    if y_col in COUNT_COLS:
-        fig.update_yaxes(**log_axis(df[y_col]))
-    return fig
-
-
-def render_analytics(df: pd.DataFrame, anomalies: pd.DataFrame):
-    """Detailed section under the main graphs: stats, distributions, time patterns, entities, rules."""
-    st.markdown("### Detailed Analytics")
-    st.caption("Everything below is computed from the same hourly IP profiles as the graphs above, "
-               "so it updates when you change the contamination slider or dataset path.")
-    normal = df[df["Status"] == NORMAL]
-    n_anom = len(anomalies)
-
-    # ---- headline numbers
-    total_ev = float(df["total_events"].sum())
-    an_ev = float(anomalies["total_events"].sum())
-    hs_total = float(df["high_severity_events"].sum())
-    hs_an = float(anomalies["high_severity_events"].sum())
-    hourly = df.groupby("time_window")["total_events"].sum()
-    ip_events = df.groupby("src_ip")["total_events"].sum()
-    cutoff = float(anomalies["risk_pct"].min()) if n_anom else float("nan")
-
-    r1 = st.columns(4)
-    r1[0].metric("Unique IPs", f"{df['src_ip'].nunique():,}",
-                 f"{anomalies['src_ip'].nunique():,} with anomalies", delta_color="off")
-    r1[1].metric("Share of all events", f"{100 * an_ev / total_ev:.1f}%" if total_ev else "n/a",
-                 "from anomalous profiles", delta_color="off")
-    r1[2].metric("Share of high-severity events", f"{100 * hs_an / hs_total:.1f}%" if hs_total else "n/a",
-                 "from anomalous profiles", delta_color="off")
-    r1[3].metric("Anomaly risk cutoff", f"{cutoff:.0f}/100" if n_anom else "n/a", "lowest flagged score", delta_color="off")
-    r2 = st.columns(4)
-    r2[0].metric("Peak hour", f"{hourly.idxmax():%m-%d %H:%M}", f"{int(hourly.max()):,} events", delta_color="off")
-    r2[1].metric("Busiest IP", str(ip_events.idxmax()), f"{int(ip_events.max()):,} events", delta_color="off")
-    r2[2].metric("Median events / profile",
-                 f"{normal['total_events'].median():,.0f} normal",
-                 f"{anomalies['total_events'].median():,.0f} anomalous" if n_anom else None, delta_color="off")
-    r2[3].metric("Max rule level seen", f"{df['max_rule_level'].max():.0f}/16",
-                 f"{int((df['max_rule_level'] >= 10).sum()):,} profiles at level ≥ 10", delta_color="off")
-
-    with st.expander("How to read these charts"):
-        st.markdown(
-            "- **Profile** = one source IP during one hour. Each profile gets a risk score from 0 (typical) to 100 (most unusual).\n"
-            "- **Anomalous** = the Isolation Forest isolated it quickly; the contamination slider sets how many are flagged.\n"
-            "- **Log scale** axes show real counts (0, 10, 100, 1K...) but spread out the huge range between quiet and busy IPs.\n"
-            "- **Lift / ratio** = how many times higher anomalous profiles are than normal ones on average.\n"
-            "- Anomalies are statistical outliers, not confirmed attacks. Verify against raw logs."
-        )
-
-    t_risk, t_time, t_ent, t_data = st.tabs(
-        ["Risk & features", "Time patterns", "IPs & rules", "Data & export"])
-
-    # ================= risk & features
-    with t_risk:
-        c1, c2 = st.columns(2)
-        with c1:
-            fig = px.histogram(
-                df, x="risk_pct", color="Status", nbins=50, log_y=True, barmode="overlay", opacity=0.8,
-                color_discrete_map=STATUS_COLORS, category_orders={"Status": [NORMAL, ANOMALY]},
-            )
-            if n_anom:
-                fig.add_vline(x=cutoff, line_dash="dash", line_color="#ffd43b",
-                              annotation_text=f"Anomaly cutoff ({cutoff:.0f})", annotation_position="top left")
-            style_fig(fig, "Risk score distribution",
-                      "Most profiles score low; flagged ones sit in the right tail",
-                      "Risk score (0 = typical, 100 = most unusual)", "IP-hour profiles (log scale)")
-            st.plotly_chart(fig, width="stretch")
-        with c2:
-            corr = df[FEATURE_COLS].corr().rename(index=SHORT_LABELS, columns=SHORT_LABELS)
-            fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1, aspect="auto")
-            style_fig(fig, "Feature correlation",
-                      "Red = move together, blue = move opposite. Highly correlated features carry overlapping signal",
-                      "Feature", "Feature")
-            fig.update_layout(coloraxis_colorbar=dict(title="r", thickness=12))
-            st.plotly_chart(fig, width="stretch")
-
-        # anomalous vs normal, per feature
-        rows = []
-        for c in FEATURE_COLS:
-            nm, am = float(normal[c].mean()), (float(anomalies[c].mean()) if n_anom else float("nan"))
-            rows.append({
-                "Feature": FEATURE_LABELS[c],
-                "Normal mean": round(nm, 2), "Anomalous mean": round(am, 2),
-                "Normal median": round(float(normal[c].median()), 2),
-                "Anomalous median": round(float(anomalies[c].median()), 2) if n_anom else np.nan,
-                "Ratio (anom ÷ normal)": round(am / nm, 1) if nm > 0 else np.nan,
-            })
-        comp = pd.DataFrame(rows)
-        plot = comp.dropna(subset=["Ratio (anom ÷ normal)"])
-        if n_anom and len(plot):
-            fig = px.bar(plot.sort_values("Ratio (anom ÷ normal)"), x="Ratio (anom ÷ normal)", y="Feature",
-                         orientation="h", text="Ratio (anom ÷ normal)", log_x=True,
-                         color="Ratio (anom ÷ normal)", color_continuous_scale="YlOrRd")
-            fig.add_vline(x=1, line_dash="dot", line_color="white", annotation_text="same as normal")
-            fig.update_traces(texttemplate="%{text:.1f}×", textposition="outside")
-            fig.update_coloraxes(showscale=False)
-            style_fig(fig, "What makes anomalies different?",
-                      "Mean of each feature in anomalous profiles divided by the mean in normal profiles",
-                      "How many times higher (log scale)", None, height=360)
-            st.plotly_chart(fig, width="stretch")
-        st.dataframe(comp, hide_index=True, width="stretch")
-
-    # ================= time patterns
-    with t_time:
-        metric_choice = st.radio("Heatmap shows", ["Log events", "Anomalous profiles", "High-severity events"],
-                                 horizontal=True)
-        src = {"Log events": ("total_events", df), "Anomalous profiles": ("src_ip", anomalies),
-               "High-severity events": ("high_severity_events", df)}[metric_choice]
-        col, data = src
-        tmp = data.assign(date=data["time_window"].dt.strftime("%Y-%m-%d"), hour=data["time_window"].dt.hour)
-        agg = "count" if col == "src_ip" else "sum"
-        pivot = tmp.pivot_table(index="date", columns="hour", values=col, aggfunc=agg, fill_value=0)
-        pivot = pivot.reindex(columns=range(24), fill_value=0)
-        fig = go.Figure(go.Heatmap(
-            z=np.log10(1 + pivot.values), x=pivot.columns, y=pivot.index, customdata=pivot.values,
-            colorscale="YlOrRd", colorbar=dict(title="log10(1+x)", thickness=12),
-            hovertemplate="%{y} at %{x}:00 UTC<br>" + metric_choice + ": %{customdata:,}<extra></extra>",
-        ))
-        style_fig(fig, f"Activity heatmap: {metric_choice.lower()}",
-                  "Darker = more activity. Look for off-hours bursts and repeating patterns",
-                  "Hour of day (UTC)", "Date", height=max(300, 40 * len(pivot) + 140))
-        fig.update_xaxes(dtick=2)
-        st.plotly_chart(fig, width="stretch")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            byhour = (df.assign(hour=df["time_window"].dt.hour)
-                      .groupby(["hour", "Status"], as_index=False).agg(profiles=("src_ip", "count")))
-            fig = px.bar(byhour, x="hour", y="profiles", color="Status", barmode="stack",
-                         color_discrete_map=STATUS_COLORS, category_orders={"Status": [NORMAL, ANOMALY]})
-            style_fig(fig, "Profiles by hour of day", "When are IPs active, and when are anomalies flagged?",
-                      "Hour of day (UTC)", "IP-hour profiles")
-            st.plotly_chart(fig, width="stretch")
-        with c2:
-            daily = df.assign(date=df["time_window"].dt.strftime("%Y-%m-%d")).groupby("date").agg(
-                profiles=("src_ip", "count"), anomalies=("anomaly", lambda s: int((s == -1).sum())),
-                events=("total_events", "sum"), high_sev=("high_severity_events", "sum"),
-                max_risk=("risk_pct", "max")).reset_index()
-            daily["anomaly_rate_%"] = (100 * daily["anomalies"] / daily["profiles"]).round(2)
-            fig = px.bar(daily, x="date", y="anomaly_rate_%", text="anomalies", color="anomaly_rate_%",
-                         color_continuous_scale="YlOrRd")
-            fig.update_traces(texttemplate="%{text} flagged", textposition="outside")
-            fig.update_coloraxes(showscale=False)
-            style_fig(fig, "Anomaly rate per day", "Share of that day's profiles that were flagged",
-                      "Date", "Anomalous profiles (% of day)")
-            st.plotly_chart(fig, width="stretch")
-        st.dataframe(daily.round(1), hide_index=True, width="stretch")
-
-    # ================= IPs & rules
-    with t_ent:
-        if not n_anom:
-            st.info("No anomalies at the current threshold, so there are no entities or rules to rank.")
-        else:
-            ent = anomalies.groupby("src_ip").agg(
-                anomalous_hours=("time_window", "count"), max_risk=("risk_pct", "max"),
-                total_events=("total_events", "sum"), high_sev=("high_severity_events", "sum"),
-                max_dest_ips=("unique_dest_ips", "max"), first_seen=("time_window", "min"),
-                last_seen=("time_window", "max"),
-            ).reset_index().sort_values(["max_risk", "anomalous_hours"], ascending=False)
-
-            c1, c2 = st.columns(2)
-            with c1:
-                top_ip = ent.head(15).iloc[::-1]
-                fig = px.bar(top_ip, x="anomalous_hours", y="src_ip", orientation="h", color="max_risk",
-                             color_continuous_scale="YlOrRd", range_color=(0, 100), text="anomalous_hours")
-                fig.update_yaxes(type="category")
-                fig.update_coloraxes(colorbar=dict(title="Max risk", thickness=12))
-                style_fig(fig, "Top anomalous IPs",
-                          "Hours each IP was flagged; color = highest risk score reached",
-                          "Anomalous hours", "Source IP", height=460)
-                st.plotly_chart(fig, width="stretch")
-            with c2:
-                rules = (anomalies["triggered_rules"].str.split(" | ", regex=False).explode().str.strip())
-                rules = rules[rules != ""]
-                rc = rules.value_counts().head(15)
-                if len(rc):
-                    base = {r: float(df["triggered_rules"].str.contains(r, regex=False).mean()) * 100 for r in rc.index}
-                    rule_df = pd.DataFrame({
-                        "Rule": rc.index, "Anomalous profiles": rc.values,
-                        "% of anomalies": (100 * rc.values / n_anom).round(1),
-                        "% of all profiles": [round(base[r], 1) for r in rc.index],
-                    })
-                    rule_df["Lift"] = (rule_df["% of anomalies"] / rule_df["% of all profiles"].replace(0, np.nan)).round(1)
-                    fig = px.bar(rule_df.iloc[::-1], x="Anomalous profiles", y="Rule", orientation="h",
-                                 text="Anomalous profiles", color="Lift", color_continuous_scale="YlOrRd")
-                    fig.update_coloraxes(colorbar=dict(title="Lift", thickness=12))
-                    style_fig(fig, "Top rules in anomalies",
-                              "Wazuh/Suricata rules appearing most in flagged profiles; color = lift vs. all profiles",
-                              "Anomalous profiles containing the rule", None, height=460)
-                    st.plotly_chart(fig, width="stretch")
-            st.markdown("**IP leaderboard** (top 50 by max risk)")
-            st.dataframe(
-                ent.head(50), hide_index=True, width="stretch",
-                column_config={
-                    "max_risk": st.column_config.ProgressColumn("max risk", min_value=0, max_value=100, format="%.0f"),
-                    "first_seen": st.column_config.DatetimeColumn("first seen", format="YYYY-MM-DD HH:mm"),
-                    "last_seen": st.column_config.DatetimeColumn("last seen", format="YYYY-MM-DD HH:mm"),
-                })
-            if len(rc):
-                st.markdown("**Rule detail** (lift above 1 means the rule is over-represented in anomalies)")
-                st.dataframe(rule_df, hide_index=True, width="stretch")
-
-    # ================= data & export
-    with t_data:
-        st.markdown("Download the scored profiles for use in a notebook, spreadsheet, or ticket.")
-        cols = ["src_ip", "time_window", "risk_pct", "Status", "why_flagged"] + FEATURE_COLS + ["triggered_rules"]
-        d1, d2 = st.columns(2)
-        d1.download_button("Anomalies (CSV)", anomalies[cols].sort_values("risk_pct", ascending=False)
-                           .to_csv(index=False).encode("utf-8"), "anomalies.csv", "text/csv")
-        d2.download_button("All scored profiles (CSV)", df[cols].to_csv(index=False).encode("utf-8"),
-                           "all_profiles_scored.csv", "text/csv")
-        st.caption(f"{n_anom:,} anomalies / {len(df):,} profiles. Time range: "
-                   f"{df['time_window'].min():%Y-%m-%d %H:%M} to {df['time_window'].max():%Y-%m-%d %H:%M} UTC.")
-
-
 # ==========================================
 # 5. LLM TRIAGE
 # ==========================================
@@ -579,205 +282,141 @@ Respond in Markdown with these sections:
 # ==========================================
 # 6. APP
 # ==========================================
+def flagged_timeline(df: pd.DataFrame, anomalies: pd.DataFrame) -> go.Figure:
+    hourly = df.groupby("time_window")["total_events"].sum()
+    fig = go.Figure(go.Scatter(x=hourly.index, y=hourly.values, mode="lines", line=dict(color="#4A5872", width=1),
+                               fill="tozeroy", fillcolor="rgba(74,88,114,0.35)", name="all log events / hour",
+                               hovertemplate="%{x|%b %d %H:%M}: %{y:,} events<extra></extra>"))
+    fig.add_trace(go.Scatter(
+        x=anomalies["time_window"], y=anomalies["total_events"], mode="markers", name="flagged IP-hour",
+        marker=dict(color="#E5484D", size=5 + anomalies["risk_pct"] / 20, opacity=0.8, line=dict(width=0)),
+        customdata=anomalies[["src_ip", "risk_pct"]].to_numpy(),
+        hovertemplate="%{customdata[0]}<br>%{x|%b %d %H:%M}<br>%{y:,} events · risk %{customdata[1]:.0f}<extra></extra>"))
+    fig.update_yaxes(type="log")
+    style_fig(fig, "When were the flagged profiles?", "Grey = all log events per hour · red = one flagged IP in one hour",
+              None, "events per hour (log)", height=430)
+    fig.update_layout(legend=dict(orientation="h", y=1.0, x=1, xanchor="right", yanchor="bottom"))
+    return fig
+
+
+def anomaly_drivers(df: pd.DataFrame, anomalies: pd.DataFrame) -> go.Figure:
+    normal = df[df["Status"] == NORMAL]
+    ratio = pd.Series({FEATURE_LABELS[c]: anomalies[c].mean() / normal[c].mean()
+                       for c in FEATURE_COLS if normal[c].mean() > 0}).sort_values()
+    fig = go.Figure(go.Bar(x=ratio.values, y=ratio.index, orientation="h", marker_color="#E5484D",
+                           text=[f"{v:.1f}×" for v in ratio.values], textposition="outside", cliponaxis=False))
+    fig.add_vline(x=1, line_dash="dot", line_color="#8A96AB")
+    fig.update_xaxes(type="log", showticklabels=False, showgrid=False)
+    return style_fig(fig, "What makes the flagged profiles different",
+                     "Average in flagged profiles ÷ average in normal ones (1× = same as normal)", height=360)
+
+
+def top_ips(anomalies: pd.DataFrame) -> go.Figure:
+    ent = (anomalies.groupby("src_ip").agg(hours=("time_window", "count"), max_risk=("risk_pct", "max"))
+           .sort_values(["max_risk", "hours"], ascending=False).head(12).iloc[::-1])
+    fig = go.Figure(go.Bar(x=ent["hours"], y=ent.index.astype(str), orientation="h", text=ent["hours"],
+                           textposition="outside", cliponaxis=False,
+                           marker=dict(color=ent["max_risk"], colorscale="YlOrRd", cmin=0, cmax=100,
+                                       colorbar=dict(title="max risk", thickness=10))))
+    fig.update_yaxes(type="category")
+    return style_fig(fig, "Most suspicious source IPs", "Hours each IP was flagged; colour = highest risk reached",
+                     "flagged hours", None, height=360)
+
+
 def _render_hunt():
-    if dataset_path:
-        try:
-            raw_summary = load_and_aggregate_data(dataset_path)
-            if raw_summary.empty:
-                st.warning("The query returned no rows. Check the dataset path and that logs contain source IPs and timestamps.")
-                return
+    try:
+        raw_summary = load_and_aggregate_data(dataset_path)
+    except Exception as e:
+        st.error(f"Could not read the raw logs: {e}")
+        return
+    if raw_summary.empty:
+        st.warning("The query returned no rows. Check that the logs contain source IPs and timestamps.")
+        return
+    df = run_ml_pipeline(raw_summary, contamination_rate, 200)
+    anomalies = df[df["anomaly"] == -1]
+    top_threats = anomalies.sort_values("risk_score", ascending=False).reset_index(drop=True)
 
-            df = run_ml_pipeline(raw_summary, contamination_rate, n_estimators)
-            anomalies = df[df["anomaly"] == -1]
-            top_threats = anomalies.sort_values("risk_score", ascending=False).reset_index(drop=True)
+    c = st.columns(4)
+    c[0].metric("IP-hour profiles", f"{len(df):,}")
+    c[1].metric("Flagged", f"{len(anomalies):,}")
+    c[2].metric("Source IPs flagged", f"{anomalies['src_ip'].nunique():,}")
+    c[3].metric("Time span", f"{df['time_window'].min():%b %d} – {df['time_window'].max():%b %d}")
 
-            st.markdown("### Enterprise Telemetry Overview")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Hourly IP Profiles Analyzed", f"{len(df):,}")
-            c2.metric("Anomalies Flagged", f"{len(anomalies):,}")
-            c3.metric("Contamination Rate", f"{contamination_rate * 100:.1f}%")
-            c4.metric("Time Span", f"{df['time_window'].min():%Y-%m-%d} → {df['time_window'].max():%Y-%m-%d}")
-            st.divider()
+    left, right = st.columns(2)
+    with left:
+        st.plotly_chart(flagged_timeline(df, anomalies), width="stretch")
+    with right:
+        st.plotly_chart(build_3d(df, 4000), width="stretch")
+        st.caption("Each dot is one source IP during one hour. Red = flagged by the Isolation Forest.")
+    if top_threats.empty:
+        st.success("Nothing flagged at the current setting.")
+        return
+    left, right = st.columns(2)
+    with left:
+        st.plotly_chart(anomaly_drivers(df, anomalies), width="stretch")
+    with right:
+        st.plotly_chart(top_ips(anomalies), width="stretch")
 
-            st.markdown("### Threat Landscape")
-            colA, colB = st.columns(2)
-            with colA:
-                st.plotly_chart(build_timeline(df, log_y_timeline), width="stretch")
-                st.caption("Bars = log events per hour (blue normal, red from anomalous profiles). Yellow line = number of anomalous IP profiles that hour (right axis). Drag the slider below to zoom.")
-            with colB:
-                tab3d, tab2d = st.tabs(["3D view", "Click map (2D)"])
+    st.markdown("### Top threats")
+    st.dataframe(
+        top_threats[["src_ip", "time_window", "risk_pct", "total_events", "unique_dest_ips",
+                     "high_severity_events", "why_flagged", "top_alerts"]].head(50),
+        width="stretch", hide_index=True,
+        column_config={"risk_pct": st.column_config.ProgressColumn("risk", min_value=0, max_value=100, format="%.0f"),
+                       "time_window": st.column_config.DatetimeColumn("hour", format="YYYY-MM-DD HH:mm"),
+                       "src_ip": "source IP", "total_events": "events", "unique_dest_ips": "dest IPs",
+                       "high_severity_events": "high-sev", "why_flagged": "why flagged", "top_alerts": "rules"})
 
-                # Clicking a point here selects it in the inspector below.
-                with tab2d:
-                    ax1, ax2 = st.columns(2)
-                    x_col = ax1.selectbox("X axis", FEATURE_COLS, index=0)
-                    y_col = ax2.selectbox("Y axis", FEATURE_COLS, index=3)
-                    click_event = st.plotly_chart(
-                        build_click_map(df, max_normal_points, x_col, y_col),
-                        width="stretch", key="click_map",
-                        on_select="rerun", selection_mode="points",
-                    )
-                    st.caption("Click any point to inspect it. Click empty space to clear.")
-
-                clicked = None
+    st.markdown("### AI analyst briefing")
+    options = [f"{r.src_ip} · {r.time_window:%Y-%m-%d %H:%M} · risk {r.risk_pct:.0f}"
+               for r in top_threats.head(50).itertuples()]
+    choice = st.selectbox("Threat to brief", range(len(options)), format_func=lambda i: options[i])
+    target = top_threats.iloc[choice]
+    st.caption(f"Flagged for: {target['why_flagged']}")
+    use_gemini = llm_choice.startswith("Gemini")
+    if use_gemini and not api_key:
+        st.warning("Add GEMINI_API_KEY to a .env file in the project root to use Gemini.")
+        return
+    if st.button("Generate briefing"):
+        key = f"{target['src_ip']}|{target['time_window']}|{llm_choice}"
+        cache = st.session_state.setdefault("briefings", {})
+        if key not in cache:
+            with st.spinner("Analyzing telemetry and mapping to MITRE ATT&CK..."):
                 try:
-                    pts = click_event.selection.points
-                    if pts:
-                        cd = pts[0].get("customdata")
-                        row_id = cd[0] if isinstance(cd, (list, tuple)) else cd
-                        clicked = df.loc[int(row_id)]
-                except Exception:
-                    clicked = None
-
-                st.markdown("#### Point Inspector")
-                f1, f2 = st.columns([1, 2])
-                scope = f1.selectbox("Show", ["Anomalies", "All profiles"], label_visibility="collapsed")
-                ip_filter = f2.text_input("Filter by IP", placeholder="Filter by IP (optional)",
-                                          label_visibility="collapsed")
-
-                pool = anomalies if scope == "Anomalies" else df
-                pool = pool.sort_values("risk_score", ascending=False)
-                if ip_filter:
-                    pool = pool[pool["src_ip"].astype(str).str.contains(ip_filter, regex=False)]
-                pool = pool.head(300)
-
-                selected = clicked
-                if pool.empty and clicked is None:
-                    st.caption("No profiles match.")
-                else:
-                    if not pool.empty:
-                        option_labels = [
-                            f"{r.src_ip} · {r.time_window:%m-%d %H:%M} · risk {r.risk_pct:.0f}"
-                            for r in pool.itertuples()
-                        ]
-                        idx = st.selectbox("Pick a point", range(len(option_labels)), format_func=lambda i: option_labels[i],
-                                           label_visibility="collapsed", disabled=clicked is not None)
-                        if clicked is None:
-                            selected = pool.iloc[idx]
-                    if clicked is not None:
-                        st.caption("Showing the point you clicked on the 2D map (dropdown is paused).")
-
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("Risk", f"{selected['risk_pct']:.0f}/100")
-                    m2.metric("Events", f"{int(selected['total_events']):,}")
-                    m3.metric("Dest IPs", f"{int(selected['unique_dest_ips']):,}")
-                    m4.metric("High-sev", f"{int(selected['high_severity_events']):,}")
-                    st.markdown(
-                        f"**`{selected['src_ip']}`** · {selected['time_window']:%Y-%m-%d %H:%M} · "
-                        f"{selected['Status']}"
-                    )
-                    if selected["why_flagged"]:
-                        st.markdown(f"**Why flagged:** {selected['why_flagged']}")
-
-                    # Each feature vs. the rest of the dataset
-                    rows = []
-                    for c in FEATURE_COLS:
-                        v = float(selected[c])
-                        rows.append({
-                            "Feature": c, "Value": round(v, 2),
-                            "Median": round(float(df[c].median()), 2),
-                            "Percentile": round(100 * float((df[c] <= v).mean()), 1),
-                        })
-                    st.dataframe(
-                        pd.DataFrame(rows), hide_index=True, width="stretch",
-                        column_config={"Percentile": st.column_config.ProgressColumn(
-                            "Percentile", min_value=0, max_value=100, format="%.0f")},
-                    )
-
-                    rules = [r for r in selected["triggered_rules"].split(" | ") if r]
-                    with st.expander(f"Triggered rules ({len(rules)})"):
-                        for r in rules[:50]:
-                            st.markdown(f"- {r}")
-                        if len(rules) > 50:
-                            st.caption(f"...and {len(rules) - 50} more")
-
-                with tab3d:
-                    st.plotly_chart(build_3d(df, max_normal_points, selected), width="stretch")
-                    st.caption(
-                        f"All {len(anomalies):,} anomalies + up to {max_normal_points:,} sampled normal profiles. "
-                        "Cyan diamond = inspected point."
-                    )
-            st.divider()
-
-            render_analytics(df, anomalies)
-
-            st.divider()
-
-            st.markdown("### Top Threats")
-            if top_threats.empty:
-                st.success("No anomalies detected at the current contamination threshold.")
-            else:
-                table = top_threats[
-                    ["src_ip", "time_window", "risk_pct", "total_events", "unique_dest_ips",
-                     "high_severity_events", "max_rule_level", "why_flagged", "top_alerts"]
-                ].head(200)
-                st.dataframe(
-                    table, width="stretch", hide_index=True,
-                    column_config={
-                        "risk_pct": st.column_config.ProgressColumn("Risk", min_value=0, max_value=100, format="%.0f"),
-                        "time_window": st.column_config.DatetimeColumn("Hour", format="YYYY-MM-DD HH:mm"),
-                    },
-                )
-
-                st.markdown("### AI analyst briefing")
-                options = [
-                    f"{r.src_ip} | {r.time_window:%Y-%m-%d %H:%M} | risk {r.risk_pct:.0f}"
-                    for r in top_threats.head(50).itertuples()
-                ]
-                choice = st.selectbox("Select a threat to brief", range(len(options)), format_func=lambda i: options[i])
-                target = top_threats.iloc[choice]
-                st.info(f"**Selected:** `{target['src_ip']}`, risk {target['risk_pct']:.0f}/100. Flagged for: {target['why_flagged']}")
-
-                use_gemini = llm_choice.startswith("Gemini")
-                if use_gemini and not api_key:
-                    st.warning("Add GEMINI_API_KEY to a .env file in the project root to use Gemini.")
-                elif st.button("Generate briefing"):
-                    cache_key = f"{target['src_ip']}|{target['time_window']}|{model_name if use_gemini else llm.MODEL}"
-                    cache = st.session_state.setdefault("briefings", {})
-                    if cache_key not in cache:
-                        with st.spinner("Analyzing telemetry and mapping to MITRE ATT&CK..."):
-                            if use_gemini:
-                                from google import genai
-                                client = genai.Client(api_key=api_key)
-                                cache[cache_key] = client.models.generate_content(
-                                    model=model_name, contents=build_prompt(target)).text
-                            else:
-                                cache[cache_key] = llm.chat([{"role": "user", "content": build_prompt(target)}])
-                    st.markdown("#### Incident report")
-                    st.markdown(cache[cache_key])
-                    st.caption("AI-generated. Verify against raw logs before acting.")
-
-        except Exception as e:
-            st.error(f"Error processing data: {e}")
-            st.exception(e)
+                    if use_gemini:
+                        from google import genai
+                        client = genai.Client(api_key=api_key)
+                        cache[key] = client.models.generate_content(
+                            model=GEMINI_MODEL, contents=build_prompt(target)).text
+                    else:
+                        cache[key] = llm.chat([{"role": "user", "content": build_prompt(target)}])
+                except Exception as e:
+                    st.error(f"Briefing failed: {e}")
+                    return
+        with st.container(border=True):
+            st.markdown(cache[key])
+        st.caption("AI-generated. Verify against raw logs before acting.")
 
 
 def render():
-    global api_key, model_name, dataset_path, contamination_rate, n_estimators, max_normal_points, log_y_timeline
-    global llm_choice
+    global api_key, dataset_path, contamination_rate, llm_choice
     st.caption("Unsupervised hunting over the raw logs: every source IP is profiled per hour and an Isolation Forest "
-               "flags the profiles that look least like the rest. Use it to explore; the AlertLens tabs rank alerts "
-               "with the supervised model.")
-    with st.expander("Hunt settings"):
-        c = st.columns(3)
-        dataset_path = c[0].text_input("Dataset path", str(ROOT / "ait_ads" / "*.json"))
-        contamination_rate = c[1].slider("Contamination (share flagged)", 0.001, 0.05, 0.01, step=0.001, format="%.3f")
-        n_estimators = c[2].slider("Trees in forest", 100, 500, 200, step=50)
-        c = st.columns(3)
-        max_normal_points = c[0].slider("Normal points shown in 3D", 500, 20000, 4000, step=500)
-        log_y_timeline = c[1].checkbox("Log scale on timeline", value=False)
-        llm_choice = c[2].radio("Briefing model", ["Local (qwen3:14b via Ollama)", "Gemini (cloud)"])
-        model_name = st.text_input("Gemini model", "gemini-3.5-flash-lite") if llm_choice.startswith("Gemini") \
-            else "gemini-3.5-flash-lite"
+               "flags the profiles that look least like the rest. It needs no labels, so it can surface activity "
+               "no rule describes; the other tabs rank alerts with the supervised AlertLens model.")
     api_key = os.environ.get("GEMINI_API_KEY") or read_env_file(ENV_PATH).get("GEMINI_API_KEY", "")
+    dataset_path = str(ROOT / "ait_ads" / "*.json")
+    c = st.columns([2, 3])
+    contamination_rate = c[0].slider("Share of profiles to flag", 0.001, 0.05, 0.01, step=0.001, format="%.3f")
+    models = ["Gemini (cloud)", "Local (qwen3:14b via Ollama)"] if api_key else ["Local (qwen3:14b via Ollama)"]
+    llm_choice = c[1].radio("Briefing model", models, horizontal=True)
     if not glob.glob(dataset_path):
-        st.info(f"No raw logs found at `{dataset_path}`. Download the AIT Alert Data Set from "
-                "[Zenodo](https://zenodo.org/records/8263181) into `ait_ads/` to use the Threat Hunt.")
+        st.info("No raw logs found in `ait_ads/`. Download the AIT Alert Data Set from "
+                "[Zenodo](https://zenodo.org/records/8263181) into `ait_ads/` to use the Threat hunt.")
         return
     if not st.session_state.get("hunt_on"):
         if st.button("Start threat hunt", type="primary"):
             st.session_state["hunt_on"] = True
             st.rerun()
-        st.caption("Reads all raw logs (2.7 GB); the first run takes a few minutes, then it is cached.")
+        st.caption("Reads all raw logs (2.7 GB); the first run takes a minute, then it is cached.")
         return
     _render_hunt()
