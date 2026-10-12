@@ -152,6 +152,10 @@ attack happened.
 - **Incidents**: ranked incidents with confidence badges, kill-chain timeline, AI report, chat, MITRE techniques, evidence.
 - **Why suspicious**: learning period, baseline vs. this alert, SHAP breakdown, the rule's history.
 - **Alert queue**: ranked alerts with reasons; mark false positives and the same rule on the same host is suppressed.
+- **Threat hunt**: unsupervised hunting over the raw logs. DuckDB profiles every source IP per hour, an Isolation
+  Forest flags the outliers, and the analyst explores them in 3D / 2D maps, time heatmaps and IP / rule leaderboards,
+  then gets an AI briefing (local LLM by default, Gemini optional via `GEMINI_API_KEY` in `.env`). Needs the raw
+  dataset in `ait_ads/`.
 - **Ground truth**: model risk over time vs. the labeled attack phases (for judges).
 
 ---

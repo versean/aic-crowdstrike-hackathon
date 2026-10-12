@@ -10,7 +10,7 @@ import streamlit as st
 from blueteam.baseline import LEARNING_HOURS, display_value, feature_info
 from blueteam.explain import STAGE_MITRE, STAGE_ORDER, confidence_tier
 from blueteam.ingest import DATA_DIR
-from blueteam import llm
+from blueteam import llm, threathunt
 
 st.set_page_config(page_title="AlertLens", layout="wide")
 
@@ -136,8 +136,8 @@ st.markdown(
     f'<div class="al-sub">Wazuh · Suricata · AMiner &nbsp;|&nbsp; {stats["n_alerts"]:,} alerts across 8 networks '
     f'&nbsp;|&nbsp; scores from networks the model never trained on</div></div>', unsafe_allow_html=True)
 
-tab_overview, tab_incidents, tab_why, tab_triage, tab_truth = st.tabs(
-    ["Overview", "Incidents", "Why suspicious", "Alert queue", "Ground truth"])
+tab_overview, tab_incidents, tab_why, tab_triage, tab_hunt, tab_truth = st.tabs(
+    ["Overview", "Incidents", "Why suspicious", "Alert queue", "Threat hunt", "Ground truth"])
 
 # ------------------------------------------------------------------ overview
 with tab_overview:
@@ -437,6 +437,10 @@ with tab_triage:
         top = top.sort_values("score_model", ascending=False).head(show_k)
         st.metric(f"Precision of top-{show_k}", f"{top['label'].mean():.0%}")
         st.dataframe(top[["score_model", "rule_desc", "label", "phase"]], hide_index=True)
+
+# ------------------------------------------------------------------ threat hunt
+with tab_hunt:
+    threathunt.render()
 
 # ------------------------------------------------------------------ ground truth
 with tab_truth:

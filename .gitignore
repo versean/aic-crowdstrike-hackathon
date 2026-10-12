@@ -16,3 +16,4 @@ data/features.parquet
 data/features_batch.parquet
 data/*_v1.*
 data/*.log
+.env
