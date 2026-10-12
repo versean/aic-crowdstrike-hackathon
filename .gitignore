@@ -94,3 +94,6 @@ dist/
 *.sqlite
 *.sqlite3
 
+
+# Local Ollama runtime and model weights
+.local/
