@@ -39,6 +39,9 @@ The search is honest about selection bias: for each held-out network we re-pick 
 seven networks; that nested estimate is also 0.961 (the same config wins every time). Strong regularization
 (`reg_lambda=20`, 30% of features per tree) is what helped.
 
+**New here? Start with [`AlertLens_walkthrough.ipynb`](AlertLens_walkthrough.ipynb)** — the whole solution in plain
+language with figures, and a real attack (santos) followed step by step from raw log line to AI incident report.
+
 ## Pipeline
 
 ```
