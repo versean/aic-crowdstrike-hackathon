@@ -1,0 +1,32 @@
+[
+ [
+  "Share of past hours this rule was active",
+  "71.3%",
+  "0.0%",
+  "+3.5"
+ ],
+ [
+  "Rarely-seen detections network-wide, same 10 min",
+  "0",
+  "13",
+  "+2.9"
+ ],
+ [
+  "Attacker indicators in raw log lines",
+  "0",
+  "1",
+  "+1.5"
+ ],
+ [
+  "Distinct rules firing network-wide, same 10 min",
+  "9",
+  "24",
+  "+1.5"
+ ],
+ [
+  "Earlier bursts of this rule",
+  "270",
+  "0",
+  "+1.3"
+ ]
+]
