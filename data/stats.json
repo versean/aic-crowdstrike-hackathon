@@ -1,0 +1,14 @@
+{
+  "n_alerts": 2655821,
+  "n_meta": 99161,
+  "n_attack_meta": 450,
+  "stage_accuracy": 0.9022222222222223,
+  "stage_macro_f1": 0.6528984524893179,
+  "n_flagged_meta": 451,
+  "flagged_precision": 0.9090909090909091,
+  "n_incidents": 13,
+  "incident_precision": 0.6923076923076923,
+  "phase_recall_flagged": 0.8772321428571428,
+  "attack_meta_recall": 0.9111111111111111,
+  "raw_alerts_flagged": 1745526
+}
