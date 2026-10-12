@@ -60,7 +60,7 @@ SHORT_LABELS = {
     "unique_dest_ips": "Dest IPs", "high_severity_events": "High-sev",
     "ids_alert_count": "IDS alerts", "auth_events": "Auth events",
 }
-STATUS_COLORS = {NORMAL: "#1f77b4", ANOMALY: "#fc0339"}
+STATUS_COLORS = {NORMAL: "#49e5ee", ANOMALY: "#ff4964"}
 
 
 def _fmt_log_tick(v: int) -> str:
@@ -207,7 +207,7 @@ def build_3d(df: pd.DataFrame, max_normal: int, selected: pd.Series | None = Non
         x, y, z = axes(normal)
         fig.add_trace(go.Scatter3d(
             x=x, y=y, z=z, mode="markers", name=NORMAL,
-            marker=dict(size=2.5, color="#5e81ac", opacity=0.35),
+            marker=dict(size=2.5, color="#3d8f96", opacity=0.35),
             text=hover(normal), hoverinfo="text",
         ))
     if len(anomalies):
@@ -230,14 +230,14 @@ def build_3d(df: pd.DataFrame, max_normal: int, selected: pd.Series | None = Non
             y=[np.log10(1 + selected["unique_dest_ips"])],
             z=[np.log10(1 + selected["high_severity_events"])],
             mode="markers", name="Selected",
-            marker=dict(size=13, color="#00e5ff", symbol="diamond", opacity=1,
+            marker=dict(size=13, color="#f3c66a", symbol="diamond", opacity=1,
                         line=dict(color="white", width=2)),
             hoverinfo="skip",
         ))
 
-    axis_style = dict(backgroundcolor="rgba(0,0,0,0)", gridcolor="#3b4252", showbackground=False)
+    axis_style = dict(backgroundcolor="rgba(0,0,0,0)", gridcolor="#29363b", showbackground=False)
     fig.update_layout(
-        hoverlabel=dict(font_size=11, align="left", bgcolor="#1b1f2a"),
+        hoverlabel=dict(font_size=11, align="left", bgcolor="#172025"),
         template="plotly_dark", height=520,
         title=dict(text="<b>3D Entity Behavior Mapping</b><br><sup>Each dot = one IP in one hour · size and color = risk · axes are log scale</sup>", x=0, xanchor="left"),
         margin=dict(l=0, r=0, b=0, t=75), legend=dict(orientation="h", y=-0.02),
@@ -284,12 +284,12 @@ Respond in Markdown with these sections:
 # ==========================================
 def flagged_timeline(df: pd.DataFrame, anomalies: pd.DataFrame) -> go.Figure:
     hourly = df.groupby("time_window")["total_events"].sum()
-    fig = go.Figure(go.Scatter(x=hourly.index, y=hourly.values, mode="lines", line=dict(color="#4A5872", width=1),
+    fig = go.Figure(go.Scatter(x=hourly.index, y=hourly.values, mode="lines", line=dict(color="#3d4c52", width=1),
                                fill="tozeroy", fillcolor="rgba(74,88,114,0.35)", name="all log events / hour",
                                hovertemplate="%{x|%b %d %H:%M}: %{y:,} events<extra></extra>"))
     fig.add_trace(go.Scatter(
         x=anomalies["time_window"], y=anomalies["total_events"], mode="markers", name="flagged IP-hour",
-        marker=dict(color="#E5484D", size=5 + anomalies["risk_pct"] / 20, opacity=0.8, line=dict(width=0)),
+        marker=dict(color="#ff4964", size=5 + anomalies["risk_pct"] / 20, opacity=0.8, line=dict(width=0)),
         customdata=anomalies[["src_ip", "risk_pct"]].to_numpy(),
         hovertemplate="%{customdata[0]}<br>%{x|%b %d %H:%M}<br>%{y:,} events · risk %{customdata[1]:.0f}<extra></extra>"))
     fig.update_yaxes(type="log")
@@ -303,9 +303,9 @@ def anomaly_drivers(df: pd.DataFrame, anomalies: pd.DataFrame) -> go.Figure:
     normal = df[df["Status"] == NORMAL]
     ratio = pd.Series({FEATURE_LABELS[c]: anomalies[c].mean() / normal[c].mean()
                        for c in FEATURE_COLS if normal[c].mean() > 0}).sort_values()
-    fig = go.Figure(go.Bar(x=ratio.values, y=ratio.index, orientation="h", marker_color="#E5484D",
+    fig = go.Figure(go.Bar(x=ratio.values, y=ratio.index, orientation="h", marker_color="#ff4964",
                            text=[f"{v:.1f}×" for v in ratio.values], textposition="outside", cliponaxis=False))
-    fig.add_vline(x=1, line_dash="dot", line_color="#8A96AB")
+    fig.add_vline(x=1, line_dash="dot", line_color="#98a6a9")
     fig.update_xaxes(type="log", showticklabels=False, showgrid=False)
     return style_fig(fig, "What makes the flagged profiles different",
                      "Average in flagged profiles ÷ average in normal ones (1× = same as normal)", height=360)
@@ -357,7 +357,7 @@ def _render_hunt():
     with right:
         st.plotly_chart(top_ips(anomalies), width="stretch")
 
-    st.markdown("### Top threats")
+    st.markdown('<div class="section-head"><h3>Top threats</h3><span class="section-note">Highest isolation-forest risk</span></div>', unsafe_allow_html=True)
     st.dataframe(
         top_threats[["src_ip", "time_window", "risk_pct", "total_events", "unique_dest_ips",
                      "high_severity_events", "why_flagged", "top_alerts"]].head(50),
@@ -367,7 +367,7 @@ def _render_hunt():
                        "src_ip": "source IP", "total_events": "events", "unique_dest_ips": "dest IPs",
                        "high_severity_events": "high-sev", "why_flagged": "why flagged", "top_alerts": "rules"})
 
-    st.markdown("### AI analyst briefing")
+    st.markdown('<div class="section-head"><h3>AI analyst briefing</h3><span class="section-note">Gemini or local Ollama</span></div>', unsafe_allow_html=True)
     options = [f"{r.src_ip} · {r.time_window:%Y-%m-%d %H:%M} · risk {r.risk_pct:.0f}"
                for r in top_threats.head(50).itertuples()]
     choice = st.selectbox("Threat to brief", range(len(options)), format_func=lambda i: options[i])

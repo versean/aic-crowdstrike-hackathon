@@ -13,5 +13,5 @@ $PY -m blueteam.explain             # SHAP reasons, kill-chain stage, incidents 
 $PY -m blueteam.baseline            # learning period, baselines, per-alert score breakdown (~6 min)
 $PY -m blueteam.llm                 # local LLM incident reports via Ollama           (~2 min / incident)
 $PY -m blueteam.export              # outputs/ranked_alerts.csv + outputs/incident_reports.md
-$PY -m blueteam.figures             # figures/*.png for the pitch
+PYTHONPATH=. $PY presentation/make_figures.py   # slide and README figures -> presentation/figs/
 .venv/bin/streamlit run app.py

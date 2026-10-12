@@ -1,4 +1,5 @@
 """AlertLens - AI-powered Blue Team triage over the AIT Alert Data Set (streamlit run app.py)."""
+import html
 import json
 
 import numpy as np
@@ -11,10 +12,12 @@ from blueteam.baseline import LEARNING_HOURS, display_value, feature_info
 from blueteam.explain import STAGE_MITRE, STAGE_ORDER, confidence_tier
 from blueteam.ingest import DATA_DIR
 from blueteam import llm, threathunt
+from blueteam.design import apply_design
 
 st.set_page_config(page_title="AlertLens", layout="wide")
+apply_design()
 
-RED, BLUE, AMBER, GRAY, MUTED, LINE = "#E5484D", "#5B9BD5", "#F2A93B", "#8A96AB", "#4A5872", "#1F2A40"
+RED, BLUE, AMBER, GRAY, MUTED, LINE = "#ff4964", "#49e5ee", "#f3c66a", "#9a9a9a", "#444444", "#222222"
 METHOD_NAMES = {
     "model": "AlertLens",
     "isoforest": "Isolation Forest",
@@ -24,40 +27,50 @@ METHOD_NAMES = {
 
 pio.templates["alertlens"] = go.layout.Template(layout=dict(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="-apple-system, Helvetica Neue, Arial, sans-serif", color="#C9D1DD", size=12),
-    title=dict(font=dict(size=13, color="#E6EAF0"), x=0, xanchor="left"),
+    font=dict(family="Inter, -apple-system, Helvetica Neue, Arial, sans-serif", color="#c9d3d4", size=12),
+    title=dict(font=dict(size=13, color="#f4f7f5", family="Space Grotesk, Inter, sans-serif"), x=0, xanchor="left"),
     xaxis=dict(gridcolor=LINE, zerolinecolor=LINE, linecolor=LINE),
     yaxis=dict(gridcolor=LINE, zerolinecolor=LINE, linecolor=LINE),
-    colorway=[RED, BLUE, AMBER, GRAY], hoverlabel=dict(bgcolor="#131C2E", bordercolor=LINE)))
+    colorway=[RED, BLUE, AMBER, GRAY], hoverlabel=dict(bgcolor="#111111", bordercolor=LINE)))
 pio.templates.default = "alertlens"
 
 st.markdown("""
 <style>
+:root { color-scheme:dark; --bg:#000; --panel:#0a0a0a; --panel-raised:#101010; --ink:#f2f2f2; --muted:#9a9a9a;
+        --line:#222; --grid:transparent; --hero:#0a0a0a; --sidebar:#000; --shadow:none; }
+[data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {
+  background:#000 !important; background-image:none !important; box-shadow:none !important; backdrop-filter:none !important;}
+[data-testid="stAppViewContainer"]::before, .hero::before, .hero::after, [data-testid="stMetric"]::after {display:none !important;}
+*, *::before, *::after {animation:none !important;}
+.brand::before, .brand span {text-shadow:none !important;}
+.hero {background:var(--panel) !important; border-left:2px solid var(--accent) !important; box-shadow:none !important;}
+[data-testid="stMetric"] {background:var(--panel) !important; border-top:1px solid var(--line) !important;}
+[data-testid="stMetric"]:hover, div[data-testid="stPlotlyChart"]:hover {transform:none; box-shadow:none;}
+.status-chip { background:transparent; }
 #MainMenu, footer, [data-testid="stDecoration"] {visibility: hidden;}
-.block-container {padding-top: 2.2rem; max-width: 1480px;}
-[data-testid="stMetric"] {background: #131C2E; border: 1px solid #1F2A40; border-radius: 6px; padding: 12px 16px;}
-[data-testid="stMetricLabel"] p {font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: #8A96AB;}
-[data-testid="stMetricValue"] {font-size: 1.6rem; font-weight: 600;}
-.stTabs [data-baseweb="tab-list"] {gap: 28px; border-bottom: 1px solid #1F2A40;}
-.stTabs [data-baseweb="tab"] {padding: 8px 0; font-weight: 500;}
-h1, h2, h3 {font-weight: 600 !important; letter-spacing: -0.01em;}
-h3 {font-size: 1.05rem !important; margin-top: 0.6rem;}
-.al-head {display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid #1F2A40; padding-bottom: 10px;
-          margin-bottom: 4px;}
-.al-logo {font-size: 1.45rem; font-weight: 700; color: #E6EAF0; letter-spacing: -0.02em;}
-.al-logo span {color: #E5484D;}
-.al-sub {color: #8A96AB; font-size: 0.85rem;}
-.chip {display: inline-block; padding: 1px 9px; border-radius: 4px; font-size: 0.72rem; font-weight: 600;
-       letter-spacing: 0.06em; vertical-align: middle;}
-.chip-high {background: #3B1219; color: #FF8B8F; border: 1px solid #6B1F28;}
-.chip-medium {background: #3A2A10; color: #F5B856; border: 1px solid #6B4E1C;}
-.chip-low {background: #1A2638; color: #9FB3C8; border: 1px solid #2C3E57;}
-.inc-title {font-size: 1.15rem; font-weight: 600; color: #E6EAF0; margin: 14px 0 6px;}
-.inc-title .when {color: #8A96AB; font-weight: 400; font-size: 0.9rem; margin-left: 10px;}
-.kv {color: #8A96AB; font-size: 0.82rem; line-height: 1.7;}
-.kv b {color: #D8DEE9; font-weight: 500;}
+.chip {display: inline-block; padding: 2px 10px; border-radius: 999px; font: 600 .62rem 'IBM Plex Mono', monospace;
+       letter-spacing: .08em; vertical-align: middle; border: 1px solid currentColor;}
+.chip-high {color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent);}
+.chip-medium {color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent);}
+.chip-low {color: var(--muted); background: transparent;}
+.inc-title {font: 700 1.35rem 'Space Grotesk', Inter, sans-serif; letter-spacing: -.03em; color: var(--ink);
+            margin: 18px 0 8px;}
+.inc-title .when {color: var(--muted); font: 400 .82rem 'IBM Plex Mono', monospace; letter-spacing: 0; margin-left: 10px;}
+.kv {color: var(--muted); font-size: .76rem; line-height: 1.75;}
+.kv b {color: var(--ink); font-weight: 500;}
+.kv .lbl {font-family: 'IBM Plex Mono', monospace; font-size: .6rem; letter-spacing: .1em; text-transform: uppercase;}
 </style>
 """, unsafe_allow_html=True)
+
+
+def page_heading(kicker: str, title: str, subtitle: str):
+    st.markdown(f'<div class="eyebrow">{html.escape(kicker)}</div><div class="page-title">{html.escape(title)}</div>'
+                f'<div class="page-subtitle">{subtitle}</div>', unsafe_allow_html=True)
+
+
+def section(title: str, note: str = ""):
+    st.markdown(f'<div class="section-head"><h3>{html.escape(title)}</h3>'
+                f'<span class="section-note">{html.escape(note)}</span></div>', unsafe_allow_html=True)
 
 
 def chart(fig, where=st):
@@ -115,9 +128,15 @@ st.session_state.setdefault("suppressed", set())
 st.session_state.setdefault("chat", {})
 networks = sorted(meta["scenario"].unique())
 
+PAGES = {"Overview": "◫  Overview", "Incidents": "◎  Incidents", "Why suspicious": "⌁  Why suspicious",
+         "Alert queue": "⌕  Alert queue", "Threat hunt": "⌖  Threat hunt", "Ground truth": "✓  Ground truth"}
+
 with st.sidebar:
-    st.markdown('<div class="al-logo">Alert<span>Lens</span></div>', unsafe_allow_html=True)
-    st.caption("SOC alert triage")
+    st.markdown('<div class="brand">ALERT<span>LENS</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="tiny-muted">AI-powered detection &amp; triage</div>', unsafe_allow_html=True)
+    st.divider()
+    page = st.radio("Workspace", list(PAGES), format_func=PAGES.get, label_visibility="collapsed")
+    st.divider()
     net = st.selectbox("Network", networks, index=networks.index("santos"))
     n_inc = int((incidents["scenario"] == net).sum())
     n_flag = int(((meta["scenario"] == net) & (meta["score_model"] >= 0.5)).sum())
@@ -125,22 +144,24 @@ with st.sidebar:
                 unsafe_allow_html=True)
     st.divider()
     st.markdown(
-        '<div class="kv">Detection <b>LightGBM, 5-seed ensemble</b><br>'
-        'Validation <b>leave-one-network-out</b><br>'
-        'Features <b>past alerts only (streaming-safe)</b><br>'
-        'Analyst LLM <b>qwen3:14b, local (Ollama)</b><br>'
-        f'Suppression rules <b>{len(st.session_state["suppressed"])}</b></div>', unsafe_allow_html=True)
-
-st.markdown(
-    f'<div class="al-head"><div class="al-logo">Alert<span>Lens</span></div>'
-    f'<div class="al-sub">Wazuh · Suricata · AMiner &nbsp;|&nbsp; {stats["n_alerts"]:,} alerts across 8 networks '
-    f'&nbsp;|&nbsp; scores from networks the model never trained on</div></div>', unsafe_allow_html=True)
-
-tab_overview, tab_incidents, tab_why, tab_triage, tab_hunt, tab_truth = st.tabs(
-    ["Overview", "Incidents", "Why suspicious", "Alert queue", "Threat hunt", "Ground truth"])
+        '<div class="kv"><span class="lbl">Detection</span><br><b>LightGBM, 5-seed ensemble</b><br>'
+        '<span class="lbl">Validation</span><br><b>leave-one-network-out</b><br>'
+        '<span class="lbl">Features</span><br><b>past alerts only (streaming-safe)</b><br>'
+        '<span class="lbl">Analyst LLM</span><br><b>qwen3:14b, local (Ollama)</b><br>'
+        f'<span class="lbl">Suppression rules</span><br><b>{len(st.session_state["suppressed"])}</b></div>',
+        unsafe_allow_html=True)
 
 # ------------------------------------------------------------------ overview
-with tab_overview:
+if page == "Overview":
+    page_heading("TRACK 02 / DETECT", "From noisy alerts to a clear lead.",
+                 "Wazuh · Suricata · AMiner. Every score comes from a model that never trained on that network.")
+    st.markdown(
+        f'<div class="hero"><div class="hero-kicker">AlertLens · Investigation workspace</div>'
+        f'<h2>{stats["n_alerts"] / 1e6:.2f}M alerts in, {stats["n_incidents"]} ranked incidents out.</h2>'
+        f'<p>Duplicates are merged into meta-alerts, scored with LightGBM, explained with SHAP and chained into '
+        f'incidents. A local LLM writes the report. You are reviewing <b>{html.escape(net.upper())}</b>.</p>'
+        f'<span class="hero-pill">● #1 INCIDENT IS THE REAL ATTACK IN 8 OF 8 NETWORKS</span></div>',
+        unsafe_allow_html=True)
     c = st.columns(5)
     c[0].metric("Raw alerts", f"{stats['n_alerts'] / 1e6:.2f}M")
     c[1].metric("Meta-alerts", f"{stats['n_meta'] / 1e3:.0f}K", help="Duplicates merged: same host, rule, source within 5 min")
@@ -206,7 +227,8 @@ with tab_overview:
 """)
 
 # ------------------------------------------------------------------ incidents
-with tab_incidents:
+if page == "Incidents":
+    page_heading("INVESTIGATE", "Incident investigations.", "Flagged meta-alerts chained by time, ranked by risk and number of kill-chain stages.")
     inc_sc = incidents[incidents["scenario"] == net].sort_values("rank_in_scenario")
     view = inc_sc.assign(
         window=inc_sc["start_dt"].dt.strftime("%m-%d %H:%M") + " – " + inc_sc["end_dt"].dt.strftime("%H:%M"),
@@ -251,8 +273,7 @@ with tab_incidents:
     key = f"{net}#{inc['incident_id']}"
     ctx = llm.incident_context(meta, inc)
     with left:
-        st.subheader("Analyst report")
-        st.caption("Written by qwen3:14b running locally, from the evidence below only.")
+        section("Analyst report", "Local qwen3:14b · evidence only")
         narratives = load_narratives()
         if key in narratives:
             with st.container(border=True):
@@ -262,7 +283,7 @@ with tab_incidents:
         else:
             st.info("No report cached for this incident yet. Generating one takes about 1–2 minutes locally.")
     with right:
-        st.subheader("Ask about this incident")
+        section("Ask about this incident", "Grounded in ranked evidence")
         hist = st.session_state["chat"].setdefault(key, [])
         for msg in hist:
             st.chat_message(msg["role"]).markdown(msg["content"])
@@ -272,11 +293,11 @@ with tab_incidents:
             with st.chat_message("assistant"):
                 ans = st.write_stream(llm.ask(ctx, q, history=hist, stream=True))
             hist += [{"role": "user", "content": q}, {"role": "assistant", "content": ans}]
-        st.subheader("MITRE ATT&CK")
+        section("MITRE ATT&CK", "Predicted techniques")
         st.dataframe(pd.DataFrame({"stage": inc["stages"], "technique": [STAGE_MITRE.get(s, "") for s in inc["stages"]]}),
                      hide_index=True, width="stretch")
 
-    st.subheader("Evidence, ranked by risk")
+    section("Evidence, ranked by risk", "Sorted by model risk")
     ev = m.sort_values("score_model", ascending=False)
     ev = ev.assign(why=ev["reasons"].apply(lambda r: " · ".join(x["text"] for x in json.loads(r or "[]")[:3])),
                    time=ev["start_dt"].dt.strftime("%m-%d %H:%M:%S"))
@@ -292,8 +313,6 @@ def why_view():
         st.info("Run `python -m blueteam.baseline` to build the baseline / learning-period view.")
         return
     lp, fb, rh, ns, bd = load_baseline(max((DATA_DIR / f).stat().st_mtime for f in BASELINE_FILES))
-    st.caption("For any alert: what normal looks like in this network, how much history the model had seen, and how "
-               "much each signal pushed the score up or down.")
     cand = meta[(meta["scenario"] == net) & meta.index.isin(bd.index)].sort_values("score_model", ascending=False)
     pick = st.selectbox(
         "Alert (ranked by risk)", cand.index, key=f"why_pick_{net}",
@@ -319,7 +338,7 @@ def why_view():
                    "with lower confidence.")
 
     contrib = json.loads(b["contrib"])
-    st.subheader("Baseline vs. this alert")
+    section("Baseline vs. this alert", "Learning-period baseline")
     rows = []
     for feat, v, cval in contrib:
         label, kind = feature_info(feat)
@@ -391,7 +410,7 @@ def why_view():
         st.caption(f"The model's strongest signal. During learning: median {nl['rare_rules'].median():.0f}, "
                    f"95th pct {nl['rare_rules'].quantile(0.95):.0f} per 10 min.")
 
-    st.subheader("Raw evidence")
+    section("Raw evidence", "Top SHAP reasons and log line")
     reasons = json.loads(row["reasons"] or "[]")
     st.markdown("\n".join(f"- {r['text']}" for r in reasons))
     raw = next((str(v) for v in (row["sample_log"], row["sample_url"]) if pd.notna(v) and str(v)), "")
@@ -402,11 +421,13 @@ def why_view():
                  f"attack share of its raw alerts: {row['attack_share']:.0%}")
 
 
-with tab_why:
+if page == "Why suspicious":
+    page_heading("EXPLAIN", "Why is this alert suspicious?", "What normal looks like in this network, how much history the model had seen, and how much each signal pushed the score.")
     why_view()
 
 # ------------------------------------------------------------------ triage
-with tab_triage:
+if page == "Alert queue":
+    page_heading("TRIAGE", "Alert queue.", "Ranked meta-alerts with the top reasons for each score.")
     st.caption("Ranked meta-alerts with the top reasons for each score. Mark false positives and AlertLens "
                "suppresses the same rule on the same host from then on.")
     show_k = st.slider("Queue length", 10, 200, 50)
@@ -439,11 +460,13 @@ with tab_triage:
         st.dataframe(top[["score_model", "rule_desc", "label", "phase"]], hide_index=True)
 
 # ------------------------------------------------------------------ threat hunt
-with tab_hunt:
+if page == "Threat hunt":
+    page_heading("HUNT", "Threat hunt.", "Unsupervised hunting over raw alerts: an Isolation Forest flags unusual source IPs per hour.")
     threathunt.render()
 
 # ------------------------------------------------------------------ ground truth
-with tab_truth:
+if page == "Ground truth":
+    page_heading("EVALUATE", "Ground truth.", "Model risk over time against the labeled attack phases (the judges' answer key).")
     lab = labels[labels["scenario"] == net].assign(
         s=lambda d: pd.to_datetime(d["start"], unit="s"), e=lambda d: pd.to_datetime(d["end"], unit="s"))
     mm = meta[(meta["scenario"] == net) & (meta["score_model"] >= 0.05)]
