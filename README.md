@@ -19,8 +19,8 @@ techniques, and an incident report written by an LLM that runs locally.
 Every number is measured on a network the model **never trained on**, using only alerts from **before** the one being
 scored, so this is what you would get running live at a new company.
 
-> **New here?** [`AlertLens_walkthrough.ipynb`](AlertLens_walkthrough.ipynb) explains the whole solution in plain
-> language and follows one real attack from raw log line to AI report. Slides: [`presentation/AlertLens.pptx`](presentation/AlertLens.pptx).
+> **Slides:** [`presentation/AlertLens.pptx`](presentation/AlertLens.pptx) explain the whole solution in plain
+> language and follow one real attack from raw log line to AI report.
 
 ![Incidents view of the AlertLens dashboard](presentation/figs/dashboard_incidents.png)
 
@@ -185,7 +185,7 @@ Rebuild the slides: `pip install python-pptx`, then `PYTHONPATH=. python present
 | Local LLM report and chat | `blueteam/llm.py` |
 | Ranked alerts and reports as plain files | `blueteam/export.py` → `outputs/ranked_alerts.csv`, `outputs/incident_reports.md` |
 | Dashboard | `app.py` |
-| Walkthrough notebook, slides | `AlertLens_walkthrough.ipynb`, `presentation/` |
+| Slides and their figures | `presentation/` |
 
 ---
 
