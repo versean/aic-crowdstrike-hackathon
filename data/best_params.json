@@ -1,0 +1,9 @@
+{
+ "num_leaves": 63,
+ "min_child_samples": 5,
+ "colsample_bytree": 0.3,
+ "reg_lambda": 20.0,
+ "pos_weight_cap": 5.0,
+ "learning_rate": 0.02,
+ "n_estimators": 800
+}
