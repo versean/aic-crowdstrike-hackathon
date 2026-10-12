@@ -18,6 +18,9 @@ what you'd get running live.
 
 - **2,655,821 raw alerts → 99,161 meta-alerts → 451 flagged (91% precision) → 13 incidents.**
 - The **#1 incident in all 8 networks is the real multi-step attack** (78–100% attack content).
+- Each incident gets a label-free confidence tier (high = top score ≥ 0.9 *and* ≥ 2 kill-chain stages). The local LLM
+  analyst uses it: all 9 real attack incidents are reported TRUE POSITIVE, the 4 benign ones LIKELY BENIGN / NEEDS
+  REVIEW with the most plausible normal explanation (e.g. a user's first-time `sudo`, a package update).
 - 88% of attack phases and 91% of attack meta-alerts are surfaced; the kill-chain stage of each alert is predicted
   with 90% accuracy (LOSO).
 - Ablation: rule semantics alone → PR-AUC 0.49; behavioral calcers (rarity, novelty, burst, actor history) → 0.96.

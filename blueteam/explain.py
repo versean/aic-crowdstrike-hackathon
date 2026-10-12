@@ -11,6 +11,14 @@ from blueteam.train import LGB_PARAMS
 
 FLAG_THRESHOLD = 0.5
 INCIDENT_GAP = 3600
+HIGH_CONFIDENCE_SCORE = 0.9
+
+
+def confidence_tier(inc: dict) -> str:
+    """Label-free triage tier: a confident detection that also spans several kill-chain stages."""
+    if inc["max_score"] >= HIGH_CONFIDENCE_SCORE and inc["n_stages"] >= 2:
+        return "high"
+    return "medium" if inc["max_score"] >= HIGH_CONFIDENCE_SCORE or inc["n_stages"] >= 2 else "low"
 
 PHASE_TO_STAGE = {
     "network_scans": "Reconnaissance",

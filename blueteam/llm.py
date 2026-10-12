@@ -6,7 +6,7 @@ import time
 import pandas as pd
 import requests
 
-from blueteam.explain import STAGE_MITRE
+from blueteam.explain import HIGH_CONFIDENCE_SCORE, STAGE_MITRE, confidence_tier
 from blueteam.ingest import DATA_DIR
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -16,12 +16,18 @@ SYSTEM = (
     "You are a senior SOC analyst assistant (like CrowdStrike Charlotte AI). You receive pre-ranked, ML-scored "
     "meta-alerts from Wazuh (HIDS), Suricata (NIDS) and AMiner (log anomaly detection) for one incident. "
     "Only use facts present in the evidence; cite timestamps, hosts, IPs and rules. Be concise and concrete. "
-    "If evidence is weak or looks like normal admin/user activity, say so explicitly."
+    "Most flagged incidents in a SOC are NOT attacks: rare-but-normal admin and user activity (first-time sudo, SSH "
+    "logins, file downloads, package updates, login failures) also gets flagged. Do not call something an attack "
+    "just because it is rare; look for attacker behaviour and for several kill-chain stages chained together."
 )
 
 NARRATIVE_TASK = """Write an incident report in Markdown with exactly these sections:
 ### Verdict
-One line: TRUE POSITIVE / LIKELY BENIGN / NEEDS REVIEW, with confidence (high/medium/low) and why.
+One line: TRUE POSITIVE / NEEDS REVIEW / LIKELY BENIGN, with confidence (high/medium/low) and why.
+Rules: TRUE POSITIVE only if the model triage tier is "high", or the evidence shows explicit attacker behaviour
+(webshell, www-data running commands, credential file access, attack tools, reverse shell). A single-stage incident
+with medium/low tier and no such behaviour is NEEDS REVIEW or LIKELY BENIGN - name the most plausible benign
+explanation and what the analyst should check to confirm it.
 ### What happened
 3-6 bullet kill-chain timeline (UTC time - stage - what the evidence shows).
 ### Affected assets & IOCs
@@ -45,6 +51,8 @@ def incident_context(meta: pd.DataFrame, inc: dict, max_items: int = 25) -> str:
         f"Incident #{inc['rank_in_scenario']} in network '{inc['scenario']}': {_ts(inc['start'])} -> {_ts(inc['end'])} UTC, "
         f"{inc['n_meta']} meta-alerts ({inc['n_alerts']:,} raw alerts), sensors={inc['sensors']}, "
         f"model-predicted stages={inc['stages']}, hosts={inc['hosts']}, source IPs={inc['src_ips']}",
+        f"Model triage tier: {confidence_tier(inc)} (max risk score {inc['max_score']:.2f}, "
+        f"{inc['n_stages']} kill-chain stage(s); 'high' = score >= {HIGH_CONFIDENCE_SCORE} and >= 2 stages)",
         "Evidence (time | host | sensor | rule | #alerts | src_ip | risk score | predicted stage | why flagged | sample log):",
     ]
     for r in m.itertuples():

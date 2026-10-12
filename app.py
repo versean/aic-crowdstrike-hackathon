@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from blueteam.baseline import LEARNING_HOURS, display_value, feature_info
-from blueteam.explain import STAGE_MITRE, STAGE_ORDER
+from blueteam.explain import STAGE_MITRE, STAGE_ORDER, confidence_tier
 from blueteam.ingest import DATA_DIR
 from blueteam import llm
 
@@ -145,7 +145,8 @@ with tab_incidents:
     view = inc_sc.assign(
         window=inc_sc["start_dt"].dt.strftime("%m-%d %H:%M") + " → " + inc_sc["end_dt"].dt.strftime("%H:%M"),
         stages=inc_sc["stages"].apply(" → ".join),
-    )[["rank_in_scenario", "risk", "window", "n_meta", "n_alerts", "stages", "sensors"]]
+        confidence=[confidence_tier(r) for r in inc_sc.to_dict("records")],
+    )[["rank_in_scenario", "risk", "confidence", "window", "n_meta", "n_alerts", "stages", "sensors"]]
     st.dataframe(view.rename(columns={"rank_in_scenario": "rank"}), hide_index=True, width="stretch",
                  column_config={"risk": st.column_config.ProgressColumn("risk", min_value=0, format="%.2f",
                                                                         max_value=float(incidents["risk"].max()))})

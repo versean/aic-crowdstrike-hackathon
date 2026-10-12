@@ -32,34 +32,40 @@
 *2022-01-19 13:09 → 14:00 UTC · 4 meta-alerts · 4 raw alerts · stages: Impact / exfiltration*
 
 ### Verdict
-TRUE POSITIVE (high confidence) - Evidence shows exfiltration of large files via HTTP GET requests with suspicious download secrets, indicating data theft.
+**NEEDS REVIEW** (medium confidence) - The evidence shows exfiltration-like activity (large file downloads with unusual secrets), but no explicit attacker behavior or multi-stage kill chain is confirmed. The activity could be related to legitimate file transfers or misconfigured access.
+
+---
 
 ### What happened
-- **01-19 13:09:04 UTC** - **Impact / Exfiltration** - A GET request was made to download a file (`Photos (2)`) from `cloud.dmz.price.fox.org` with a suspicious `downloadStartSecret` parameter, indicating potential data exfiltration.
-- **01-19 13:09:04 UTC** - **Impact / Exfiltration** - A similar GET request was made from `172.17.130.37` to download the same file, with the same suspicious secret, suggesting coordinated exfiltration activity.
-- **01-19 14:00:31 UTC** - **Impact / Exfiltration** - A large file (`ownCloud Manual (2).pdf`) was exfiltrated from `cloud.dmz.price.fox.org` using a unique `downloadStartSecret`, indicating continued data theft.
+- **01-19 13:09:04 UTC** - **Impact / Exfiltration** - A GET request was made to download a file (`Photos (2)`) from `cloud.dmz.price.fox.org` with a `downloadStartSecret` parameter, suggesting potential unauthorized access or misconfigured download functionality.
+- **01-19 13:09:04 UTC** - **Impact / Exfiltration** - A similar GET request was made from `172.17.130.37` to download the same file, with the same secret, indicating potential coordination or shared access.
+- **01-19 14:00:31 UTC** - **Impact / Exfiltration** - A large file (`ownCloud Manual (2).pdf`) was downloaded from `cloud.dmz.price.fox.org` using a different secret, suggesting continued or repeated exfiltration activity.
+
+---
 
 ### Affected assets & IOCs
 - **Hosts**: `172.17.129.140`, `172.17.130.37`
-- **Source IPs**: `10.35.33.116`, `172.17.130.196` (indirectly involved)
+- **Source IPs**: `10.35.33.116`, `172.17.130.196` (internal IPs)
 - **URLs**: 
   - `https://cloud.dmz.price.fox.org/index.php/apps/files/ajax/download.php?dir=%2F&files=Photos%20(2)&downloadStartSecret=uq2iq8qsxrk`
   - `https://cloud.dmz.price.fox.org/remote.php/webdav/ownCloud%20Manual%20(2).pdf?downloadStartSecret=6syynp9uz9c`
-- **IOCs**: 
-  - `downloadStartSecret=uq2iq8qsxrk`
-  - `downloadStartSecret=6syynp9uz9c`
-  - Large file transfers (6MB+)
+- **File names**: `Photos (2)`, `ownCloud Manual (2).pdf`
+- **Secrets**: `uq2iq8qsxrk`, `6syynp9uz9c`
+
+---
 
 ### MITRE ATT&CK
-- **T1048** - Exfiltration Over Alternative Protocol (HTTP GET requests used for data exfiltration)
-- **T1489** - Service Stop (potential service disruption or manipulation to cover tracks)
+- **T1048** - Exfiltration Over Alternative Protocol (use of HTTP for large file transfers)
+- **T1489** - Service Stop (potential service disruption or manipulation, though not directly observed)
+
+---
 
 ### Recommended response
-1. **Isolate affected hosts** (`172.17.129.140`, `172.17.130.37`) and investigate for unauthorized access or lateral movement.
-2. **Block the source IPs** (`10.35.33.116`, `172.17.130.196`) and monitor for further suspicious activity.
-3. **Review logs** for the suspicious `downloadStartSecret` values and trace the origin of the exfiltrated files.
-4. **Audit user accounts** on the affected hosts for unauthorized access or privilege escalation.
-5. **Implement additional monitoring** for large file transfers and unusual HTTP GET requests with secret parameters.
+1. **Investigate the source IPs** (`10.35.33.116`, `172.17.130.196`) to determine if they belong to authorized users or systems.
+2. **Review the file download logs** on the affected hosts to confirm if the files were accessed by legitimate users or if there are any anomalies in the access patterns.
+3. **Validate the use of `downloadStartSecret`** in the application to ensure it is not being misused or exploited.
+4. **Check for unauthorized access** to the Nextcloud or ownCloud instance (e.g., check authentication logs, user activity, and session management).
+5. **Audit the application configuration** for any misconfigured download or exfiltration endpoints.
 
 ## harrison — incident #1 (risk 6.77)
 *2022-02-08 07:16 → 08:37 UTC · 47 meta-alerts · 424,951 raw alerts · stages: Reconnaissance → Web discovery → Credential access → Execution (reverse shell) → Privilege escalation*
@@ -97,29 +103,29 @@ TRUE POSITIVE (high confidence) - Multiple high-risk alerts from AMiner, Wazuh, 
 *2022-02-04 06:16 → 06:21 UTC · 1 meta-alerts · 108 raw alerts · stages: Reconnaissance*
 
 ### Verdict
-TRUE POSITIVE (high confidence) - Unusual outbound traffic from 172.28.192.4 to 192.168.128.1 with a rare rule firing multiple times, indicating potential reconnaissance activity.
+**LIKELY BENIGN** (low confidence) - The evidence shows a rare but plausible legitimate activity related to package management, likely triggered by a system update or package installation. No explicit attacker behavior or high-risk indicators were observed.
 
 ### What happened
-- **02-04 06:16:25 UTC** - **Reconnaissance** - Suricata detected 108 alerts from IP `172.28.192.4` to host `192.168.128.1` using a rare rule related to GNU/Linux APT User-Agent, suggesting scanning or probing behavior.
-- **02-04 06:16:25 - 06:21:52 UTC** - **Reconnaissance** - Multiple detections across the network within a 10-minute window, with 5 rarely-seen alerts, indicating potential active scanning.
-- **02-04 06:21:52 UTC** - **Reconnaissance** - Attack indicators found in raw logs, pointing to potential malicious activity attempting to map the network or identify vulnerable systems.
+- **02-04 06:16:25 UTC** - **Reconnaissance** - A system on host `192.168.128.1` initiated a connection to an external IP (`172.28.192.4`) using a user agent associated with package management tools. This triggered a rare rule in Suricata, which was not previously seen in the network.
+- **02-04 06:16:25 - 06:21:52 UTC** - **Reconnaissance** - The same connection was flagged multiple times across the network in a short time window, suggesting potential scanning or probing behavior, but no further malicious activity was detected.
+- **02-04 06:21:52 UTC** - **Reconnaissance** - The event was logged with a low risk score (0.58), and no additional indicators of compromise were found in the raw logs.
 
 ### Affected assets & IOCs
 - **Hosts**: `192.168.128.1`
 - **Source IPs**: `172.28.192.4`
-- **URLs/Paths**: `/ubuntu/pool/main/s/shadow/login_4.5-1ubuntu2.2_amd64.deb`
-- **Rule ID**: Suricata: Alert - ET POLICY GNU/Linux APT User-Agent Outbound likely related to package management
+- **User-Agent**: Likely associated with package management (e.g., `apt` or `apt-get`)
+- **URL/Path**: `/ubuntu/pool/main/s/shadow/login_4.5-1ubuntu2.2_amd64.deb` (part of a Debian/Ubuntu package repository)
 
 ### MITRE ATT&CK
 - **TA0043** - Reconnaissance
 - **T1595** - Active Scanning
 
 ### Recommended response
-1. **Isolate and investigate the source IP** `172.28.192.4` to determine if it is a legitimate system or a compromised host.
-2. **Review logs** from `192.168.128.1` for any unusual activity around the time of the alerts.
-3. **Block or restrict traffic** from `172.28.192.4` if no legitimate reason for the activity is found.
-4. **Correlate with other sensors** (e.g., Wazuh or AMiner) to check for additional signs of reconnaissance or exploitation.
-5. **Update Suricata rules** and ensure the rare rule is reviewed for accuracy and potential false positives.
+1. **Review system logs** on `192.168.128.1` for any package management activity (e.g., `apt`, `apt-get`, `yum`) around the time of the alert to confirm if a legitimate update or installation occurred.
+2. **Check Suricata logs** for additional context or correlation with other alerts in the same time window.
+3. **Validate the source IP** `172.28.192.4` to determine if it is a known legitimate IP (e.g., a mirror or repository server).
+4. **Monitor for follow-on activity** from the same source IP or user agent to detect any potential escalation of the initial event.
+5. **Consider updating the Suricata rule** to reduce false positives if the activity is confirmed as legitimate.
 
 ## russellmitchell — incident #1 (risk 8.28)
 *2022-01-24 03:56 → 04:38 UTC · 77 meta-alerts · 11,228 raw alerts · stages: Reconnaissance → Web discovery → Initial access (webshell upload) → Credential access → Execution (reverse shell) → Privilege escalation*
@@ -193,57 +199,71 @@ TRUE POSITIVE (high confidence) - Multiple sensors detected a coordinated attack
 *2022-01-16 08:23 → 08:27 UTC · 3 meta-alerts · 9 raw alerts · stages: Privilege escalation*
 
 ### Verdict
-**TRUE POSITIVE** (high confidence) – Unusual PAM activity, followed by a first-time sudo usage by a non-root user, with multiple rare rules firing in a short time window, suggesting a privilege escalation attempt.
+**LIKELY BENIGN** (low confidence) - The evidence shows a single kill-chain stage (privilege escalation) with no explicit attacker behavior. The most plausible explanation is a legitimate user (gmorgan) performing a first-time sudo action, possibly during system maintenance or troubleshooting.
+
+---
 
 ### What happened
-- **01-16 08:23:08 UTC** – **Privilege escalation attempt initiation**: PAM rule "Login session opened" triggered for user `gmorgan`, with a rare rule firing and multiple detections across the network in the same 10-minute window.
-- **01-16 08:24:08 UTC** – **Session closure**: PAM rule "Login session closed" triggered for the same user, with continued rare rule activity and high number of distinct rules firing.
-- **01-16 08:27:38 UTC** – **Privilege escalation attempt confirmed**: First-time sudo usage by `gmorgan` to execute `tail /var/log/syslog` as `root`, with a rule never seen before in the network.
+- **01-16 08:23:08 UTC** - **Privilege escalation attempt detected** - A login session was opened for user `gmorgan` via SSH, which is a rare event in this network.
+- **01-16 08:24:08 UTC** - **Privilege escalation attempt detected** - The same session was closed shortly after, which is also a rare event in this network.
+- **01-16 08:27:38 UTC** - **Privilege escalation attempt detected** - User `gmorgan` executed `sudo` for the first time, accessing system logs (`/var/log/syslog`), which is a rare and newly seen event in this network.
+
+---
 
 ### Affected assets & IOCs
 - **Hosts**: `mail`
-- **Source IPs**: None explicitly listed (local user activity)
+- **Source IPs**: None (local user activity)
 - **Accounts**: `gmorgan`, `root`
-- **Commands**: `sudo /usr/bin/tail /var/log/syslog`
-- **Files**: `/var/log/syslog`
-- **Processes**: `sshd`, `sudo`
+- **Files/Commands**: `/usr/bin/tail /var/log/syslog`
+- **Ports/Protocols**: SSH (port 22, likely)
+
+---
 
 ### MITRE ATT&CK
-- **T1548.003** – **Sudo and Sudo Caching**: Exploiting sudo to gain elevated privileges without authentication.
+- **T1548.003** - Sudo and Sudo Caching: The use of `sudo` by a user who has not previously used it may indicate an attempt to escalate privileges.
+
+---
 
 ### Recommended response
-1. **Investigate the user `gmorgan`** – Check for unauthorized access, account compromise, or lateral movement from this user.
-2. **Review sudo usage logs** – Look for other sudo commands executed by `gmorgan` or other users, especially those with elevated privileges.
-3. **Audit PAM and SSH logs** – Investigate the login session for anomalies, such as unexpected login times, locations, or authentication methods.
-4. **Enable sudo logging and monitoring** – Ensure that all sudo commands are logged and monitored for suspicious activity.
-5. **Consider account lockout or revocation** – If `gmorgan` is found to be compromised, lock the account and initiate a forensic investigation.
+1. **Verify the legitimacy of the user activity** - Confirm with the user `gmorgan` whether they performed the `sudo` action and why. Check if this is part of routine maintenance or troubleshooting.
+2. **Review system logs** - Examine `/var/log/auth.log` and `/var/log/syslog` for additional context around the sudo usage and SSH login.
+3. **Monitor for follow-on activity** - Watch for any further privilege escalation attempts or unusual behavior from `gmorgan` or `root`.
+4. **Update baseline behavior** - If the activity is legitimate, update the model's baseline to reduce false positives for similar events in the future.
 
 ## santos — incident #3 (risk 1.07)
 *2022-01-14 05:24 → 05:24 UTC · 2 meta-alerts · 3 raw alerts · stages: Privilege escalation*
 
 ### Verdict
-**TRUE POSITIVE** (high confidence) - Unusual authentication failures on a mail server during a short time window, combined with rare rule firings and privilege escalation stage prediction, indicate a potential attack attempt.
+**LIKELY BENIGN** (low confidence) - The evidence shows a single kill-chain stage (privilege escalation) with no explicit attacker behavior, and the event could be due to a failed login attempt by a legitimate user or a misconfigured authentication system.
+
+---
 
 ### What happened
-- **01-14 05:24:18 UTC** - **Initial access attempt**: Failed PAM authentication for user `danny.jarvis` from IP `172.21.131.50` on the mail server, flagged by Wazuh due to a new and rare rule.
-- **01-14 05:24:22 UTC** - **Privilege escalation attempt**: A second failed authentication attempt for the same user was recorded in HORDE logs, indicating a possible escalation attempt.
-- **01-14 05:24:18–05:24:22 UTC** - **Rule anomaly**: 24 distinct rare rules fired across the network within a 10-minute window, suggesting coordinated or automated attack behavior.
+- **01-14 05:24:18 UTC** - **Privilege escalation attempt** - A failed authentication attempt was detected via PAM for user `danny.jarvis` from IP `172.21.131.50`, possibly related to a misconfigured or brute-force attempt.
+- **01-14 05:24:22 UTC** - **Privilege escalation attempt** - A second failed login attempt was recorded in the HORDE application for the same user, likely related to the same authentication failure.
+- **01-14 05:24:18–05:24:22 UTC** - **Multiple rare rules triggered** - 24 distinct rules fired across the network in a 10-minute window, indicating unusual activity but not necessarily malicious.
+
+---
 
 ### Affected assets & IOCs
 - **Hosts**: `mail`
 - **Source IPs**: `172.21.131.50`
 - **Accounts**: `danny.jarvis`
-- **URLs**: `172.21.129.224` (Horde login endpoint)
+- **URLs**: None explicitly mentioned in the evidence
+
+---
 
 ### MITRE ATT&CK
-- **T1548.003** - Sudo and Sudo Caching: Suggests an attempt to exploit sudo configuration for privilege escalation.
+- **T1548.003** - Sudo and Sudo Caching (Privilege escalation)
+
+---
 
 ### Recommended response
-1. **Isolate the mail server** and investigate the source IP `172.21.131.50` for potential compromise or malicious activity.
-2. **Review sudo configurations** on the mail server for any misconfigurations or unauthorized entries.
-3. **Audit user accounts** for `danny.jarvis`, including password history, access rights, and login activity.
-4. **Correlate with other sensors** (e.g., Suricata, AMiner) to determine if this is part of a larger attack pattern.
-5. **Implement multi-factor authentication** for administrative and privileged accounts to mitigate future escalation attempts.
+1. **Investigate the source IP `172.21.131.50`** - Check if it belongs to a legitimate user or system within the network. If not, block or investigate further.
+2. **Review authentication logs for `danny.jarvis`** - Look for patterns of failed login attempts, and verify if the user is legitimate and if their credentials may have been compromised.
+3. **Check for misconfigurations in PAM and HORDE** - Ensure that authentication systems are properly configured and that there are no vulnerabilities being exploited.
+4. **Monitor for additional failed login attempts** - Watch for similar events in the next 24 hours to determine if this is an isolated incident or part of a broader attack.
+5. **Verify if the user `danny.jarvis` has sudo access** - Confirm whether the user is authorized to perform actions that would require privilege escalation.
 
 ## shaw — incident #1 (risk 5.77)
 *2022-01-29 14:38 → 15:21 UTC · 26 meta-alerts · 6,046 raw alerts · stages: Reconnaissance → Web discovery → Credential access → Execution (reverse shell) → Privilege escalation*

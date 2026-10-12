@@ -20,6 +20,7 @@
 - Top-20 queue **100% precision**; queue for 90% recall **64 items vs 12,017** → **99.9% of benign alerts suppressed**.
 - 451 flagged at **91% precision** (~98% counting attack traffic the labels miss); only 10 benign items outside any attack.
 - **#1 incident = the real attack in 8/8 networks**; 88% of attack phases surfaced; stage accuracy 90%.
+- The AI analyst doesn't rubber-stamp: 9/9 real attacks → TRUE POSITIVE, 4/4 benign incidents → LIKELY BENIGN / NEEDS REVIEW.
 
 ![baselines](figures/baselines.png)
 
