@@ -22,7 +22,7 @@ scored, so this is what you would get running live at a new company.
 > **Slides:** [`presentation/AlertLens.pptx`](presentation/AlertLens.pptx) explain the whole solution in plain
 > language and follow one real attack from raw log line to AI report.
 
-![Incidents view of the AlertLens dashboard](presentation/figs/dashboard_incidents.png)
+![Incidents view of the AlertLens dashboard](presentation/figs/app_incidents.png)
 
 ---
 
@@ -146,17 +146,24 @@ attack happened.
 
 ## The dashboard
 
-`streamlit run app.py` opens a SOC console with a network selector and five views:
+`streamlit run app.py` opens a SOC console. The sidebar has the six views and a network selector that applies to all
+of them:
 
 - **Overview**: funnel and comparison with common approaches.
 - **Incidents**: ranked incidents with confidence badges, kill-chain timeline, AI report, chat, MITRE techniques, evidence.
 - **Why suspicious**: learning period, baseline vs. this alert, SHAP breakdown, the rule's history.
 - **Alert queue**: ranked alerts with reasons; mark false positives and the same rule on the same host is suppressed.
 - **Threat hunt**: unsupervised hunting over the raw logs. DuckDB profiles every source IP per hour, an Isolation
-  Forest flags the outliers, and the analyst explores them in 3D / 2D maps, time heatmaps and IP / rule leaderboards,
-  then gets an AI briefing (local LLM by default, Gemini optional via `GEMINI_API_KEY` in `.env`). Needs the raw
-  dataset in `ait_ads/`.
+  Forest flags the outliers, and the analyst sees when they happened, a 3D map, what drove each flag and the top
+  source IPs, then gets an AI briefing on the top threat (Gemini if `GEMINI_API_KEY` is in `.env`, otherwise the local
+  LLM). Needs the raw dataset in `ait_ads/`.
 - **Ground truth**: model risk over time vs. the labeled attack phases (for judges).
+
+![Overview](presentation/figs/app_overview.png)
+
+![Why suspicious: baseline vs. this alert and the SHAP score breakdown](presentation/figs/app_why.png)
+
+![Threat hunt: flagged source IPs over time and the 3D behaviour map](presentation/figs/app_threathunt.png)
 
 ---
 
