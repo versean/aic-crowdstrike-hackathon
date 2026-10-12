@@ -260,18 +260,3 @@ what the analyst-feedback suppression handles.
 - The HIGH-confidence rule was chosen after seeing these results.
 - 8 networks with one attack type; a real deployment needs more attack variety.
 </details>
-
----
-
-## 3-minute demo script
-
-1. **Overview**: "2.66M alerts in 5 days. Sorting by Wazuh severity, an analyst would go through 12,000 items to find
-   90% of the attack. AlertLens: 64, on a network it never trained on, with no look-ahead."
-2. **Incidents → santos #1**: the kill chain climbs from recon → web discovery → webshell → cracking → reverse shell
-   → privilege escalation; the AI report names the attacker IP, the webshell path and the compromised accounts.
-3. **Ask about this incident**: "Which IP is the attacker and what should I block first?"
-4. **Why suspicious → fox, top alert**: baseline vs. this alert, the SHAP breakdown up to 99.8%, the rule's history
-   with the learning period shaded. Then **russellmitchell, 01-23 16:24 `sshd: authentication success` on mail**: the
-   rule *is* rare here (+2.2), but nothing else is unusual and it's an admin's SSH key login (−0.36), so it stays at ~0.1%.
-5. **Alert queue**: mark `First time user executed sudo` as an admin false positive → it disappears from the queue.
-6. **Ground truth**: model risk over time vs. labeled attack phases.
