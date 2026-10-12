@@ -59,6 +59,20 @@ admin tradecraft — SSH public-key logins, commands from `/home/*`. `account` a
 seen on this host / in this network before. These turn reasons like "rare rule" into "attacker indicators in raw logs:
 exec from web/tmp dir, credential file access", and "regular SSH key login by an administrator (likely benign)".
 
+**Baseline, learning period and the why (the "Why suspicious?" tab).** For any alert the dashboard shows:
+- *Learning period* — the first 24 h of each network (no attack starts before hour 46 in any network). Alerts in it are
+  scored but marked "baseline still learning"; only 3 of 451 flagged items fall there, none of them attacks. After it the
+  model keeps learning: every feature uses all alerts before the one being scored, never after.
+- *Baseline vs. this alert* — for the signals that drove the score, this alert's value next to what a typical alert in
+  this network looked like during the learning period (median and 95th percentile), e.g. "rule active in 0% of past
+  hours vs. normal 62%", "12 rarely-seen detections in the same 10 min vs. normal 0 (95% ≤ 3)".
+- *Why* — a SHAP waterfall from the typical-alert prior to this alert's score, computed with the same held-out-network
+  models that produced the score (it reproduces every displayed score exactly).
+- The rule's hourly history and the network-wide rare-detection rate, each with the learning period and baseline drawn in.
+
+`blueteam/baseline.py` builds this (`data/learning_periods.json`, `feature_baseline.parquet`, `rule_hourly.parquet`,
+`network_series.parquet`, `score_breakdown.parquet`).
+
 **Labels.** `labels.csv` only gives attack-phase time windows, so ~19K benign background alerts (mail logins, TLS
 noise) fall inside them. We denoise: an in-window alert counts as attack-related only if its rule fires ≥10× more often
 inside attack windows than in normal operation for that network. Background rules sit at 1–3×, attack rules at 10²–10⁶×.
@@ -94,5 +108,10 @@ ollama pull qwen3:14b                     # optional, for reports / chat
 2. **Incident queue → santos #1** — kill-chain timeline lights up recon → web discovery → webshell → cracking →
    reverse shell → privilege escalation; the AI report names attacker IP, webshell path, compromised accounts.
 3. **Ask the analyst** — "Which IP is the attacker and what should I block first?"
-4. **Alert triage** — mark `First time user executed sudo` as an admin false positive → it disappears from the queue.
-5. **Ground truth** — model risk over time vs labeled attack phases.
+4. **Why suspicious? → fox, top alert** — baseline vs. this alert ("rule active in 0% of past hours, normal 62%"),
+   the waterfall from the typical-alert prior to 99.8%, the rule's history with the learning period shaded. Then
+   **russellmitchell, 01-23 16:24 `sshd: authentication success` on mail** — the rule *is* rare here (+2.2, a rarity-only
+   detector would flag it), but nothing else unusual is happening in the network and it is an administrator's SSH key
+   login (−0.36), so it stays at ~0.1%.
+5. **Alert triage** — mark `First time user executed sudo` as an admin false positive → it disappears from the queue.
+6. **Ground truth** — model risk over time vs labeled attack phases.

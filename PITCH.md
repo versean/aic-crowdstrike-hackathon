@@ -30,6 +30,9 @@
 - Reads the raw logs like an analyst: `www-data` switching user, `/etc/shadow` access, shells with no login → attack;
   SSH key logins from `/home/admin` → benign. Flagged false positives 77 → 41.
 - Tuning checked for selection bias (nested leave-one-network-out): 0.961 holds.
+- Every alert shows **baseline, learning period and the why**: a 24 h learning period per network, "this alert vs.
+  normal here" for each driving signal, and a SHAP waterfall from the typical-alert prior to its score — computed by
+  the same held-out models, so it explains exactly the number the analyst sees.
 - Label denoising: in-window background noise (mail logins, TLS chatter) is not counted as attack.
 - Honest limitation: DNS exfiltration hides in a detector that fires all day → next: per-domain sequence features.
 
@@ -37,4 +40,4 @@
 
 ## 5. Live demo
 Overview → Incident queue (santos #1: kill-chain timeline + AI report) → Ask the analyst ("which IP do I block
-first?") → Alert triage (mark admin `sudo` as FP → suppressed) → Ground truth view.
+first?") → Why suspicious? (fox top alert: baseline vs. now + waterfall; russellmitchell admin SSH login: rare but benign) → Alert triage (mark admin `sudo` as FP → suppressed) → Ground truth view.

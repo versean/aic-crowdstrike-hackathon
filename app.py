@@ -7,6 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from blueteam.baseline import LEARNING_HOURS, display_value, feature_info
 from blueteam.explain import STAGE_MITRE, STAGE_ORDER
 from blueteam.ingest import DATA_DIR
 from blueteam import llm
@@ -36,6 +37,24 @@ def load(version: float):
     return meta, inc, summary, by_sc, imp, stats, labels
 
 
+BASELINE_FILES = ("learning_periods.json", "feature_baseline.parquet", "rule_hourly.parquet",
+                  "network_series.parquet", "score_breakdown.parquet")
+
+
+@st.cache_data
+def load_baseline(version: float):
+    lp = pd.DataFrame(json.load(open(DATA_DIR / "learning_periods.json"))).set_index("scenario")
+    fb = pd.read_parquet(DATA_DIR / "feature_baseline.parquet").set_index(["scenario", "feature"])
+    rh = pd.read_parquet(DATA_DIR / "rule_hourly.parquet")
+    ns = pd.read_parquet(DATA_DIR / "network_series.parquet")
+    bd = pd.read_parquet(DATA_DIR / "score_breakdown.parquet").set_index("row")
+    return lp, fb, rh, ns, bd
+
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+
 def load_narratives():
     p = DATA_DIR / "narratives.json"
     return json.load(open(p)) if p.exists() else {}
@@ -51,8 +70,8 @@ st.caption("Wazuh HIDS + Suricata NIDS + AMiner log-anomaly alerts → deduplica
            "→ explained incidents → local-LLM analyst. All scores are from leave-one-network-out validation with streaming-safe "
            "(no look-ahead) features.")
 
-tab_overview, tab_incidents, tab_triage, tab_truth = st.tabs(
-    ["📊 Overview", "🚨 Incident queue", "🔎 Alert triage", "🎯 Ground truth check"])
+tab_overview, tab_incidents, tab_why, tab_triage, tab_truth = st.tabs(
+    ["📊 Overview", "🚨 Incident queue", "🧭 Why suspicious?", "🔎 Alert triage", "🎯 Ground truth check"])
 
 # ------------------------------------------------------------------ overview
 with tab_overview:
@@ -184,6 +203,124 @@ with tab_incidents:
     st.dataframe(ev[["score_model", "time", "pred_stage", "source", "host", "src_ip", "rule_desc", "n_alerts", "why"]],
                  hide_index=True, width="stretch",
                  column_config={"score_model": st.column_config.ProgressColumn("risk", min_value=0, max_value=1, format="%.3f")})
+
+# ------------------------------------------------------------------ why suspicious
+def why_view():
+    if not all((DATA_DIR / f).exists() for f in BASELINE_FILES):
+        st.info("Run `python -m blueteam.baseline` to build the baseline / learning-period view.")
+        return
+    lp, fb, rh, ns, bd = load_baseline(max((DATA_DIR / f).stat().st_mtime for f in BASELINE_FILES))
+    st.markdown("For any alert: **what normal looks like** in this network, **how much history** the model had "
+                "seen, and **why** it got its score — how much each signal pushed it up or down.")
+    c = st.columns([1, 4])
+    sc4 = c[0].selectbox("Network", sorted(meta["scenario"].unique()), key="why_sc")
+    cand = meta[(meta["scenario"] == sc4) & meta.index.isin(bd.index)].sort_values("score_model", ascending=False)
+    pick = c[1].selectbox(
+        "Alert (ranked by risk)", cand.index, key=f"why_pick_{sc4}",
+        format_func=lambda i: f"{cand.at[i, 'score_model']:.2f} · {cand.at[i, 'start_dt']:%m-%d %H:%M} · "
+                              f"{cand.at[i, 'host']} · {cand.at[i, 'rule_desc'][:80]}")
+    row, b, L = meta.loc[pick], bd.loc[pick], lp.loc[sc4]
+    t0, learn_end = pd.to_datetime(L["t0"], unit="s"), pd.to_datetime(L["learn_end"], unit="s")
+    in_learning = row["start"] < L["learn_end"]
+
+    k = st.columns(4)
+    k[0].metric("Risk score", f"{row['score_model']:.1%}",
+                help="From models trained on the other 7 networks only (leave-one-network-out).")
+    k[1].metric("Predicted stage", row["pred_stage"] if pd.notna(row["pred_stage"]) else "not flagged")
+    k[2].metric("History before this alert", f"{(row['start'] - L['t0']) / 3600:.0f} h")
+    k[3].metric("Baseline", "still learning" if in_learning else "established")
+    st.caption(
+        f"**Learning period** for {sc4}: the first {LEARNING_HOURS} h of monitoring ({t0:%m-%d %H:%M} → "
+        f"{learn_end:%m-%d %H:%M} UTC) — {L['n_alerts_learning']:,.0f} alerts from {L['n_rules_learning']:.0f} rules. "
+        "'Normal' below is what a typical alert in this network looked like during that period. After it, the model "
+        "keeps learning: every feature uses all alerts *before* the one being scored, never after.")
+    if in_learning:
+        st.warning("This alert falls inside the learning period — the baseline is still forming, so treat the score "
+                   "with lower confidence.")
+
+    contrib = json.loads(b["contrib"])
+    st.subheader("Baseline vs. this alert")
+    rows = []
+    for feat, v, cval in contrib:
+        label, kind = feature_info(feat)
+        base = fb.loc[(sc4, feat)] if (sc4, feat) in fb.index else None
+        if base is None:
+            normal = "–"
+        elif kind == "flag":
+            normal = f"present in {base['nonzero']:.1%} of alerts"
+        else:
+            normal = f"{display_value(feat, base['median'])}  (95% of alerts ≤ {display_value(feat, base['p95'])})"
+        rows.append({"signal": label, "this alert": display_value(feat, v), "normal in this network": normal,
+                     "push on score": cval, "effect": "▲ more suspicious" if cval > 0 else "▼ less suspicious"})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
+        "push on score": st.column_config.NumberColumn(format="%+.2f", help="Tree-SHAP contribution in log-odds")})
+
+    names = ["Typical alert (prior)"] + [feature_info(f)[0] for f, _, _ in contrib] + ["All other signals",
+                                                                                      "This alert"]
+    vals = [b["bias"]] + [cv for _, _, cv in contrib] + [b["rest"], 0]
+    f = go.Figure(go.Waterfall(
+        orientation="h", y=names, x=vals, measure=["absolute"] + ["relative"] * (len(contrib) + 1) + ["total"],
+        increasing=dict(marker_color="crimson"), decreasing=dict(marker_color="steelblue"),
+        totals=dict(marker_color="dimgray"), text=[f"{v:+.2f}" for v in vals[:-1]] + [f"{row['score_model']:.1%}"],
+        textposition="outside", cliponaxis=False))
+    f.update_layout(
+        height=480, margin=dict(l=10, r=90, t=50, b=10), yaxis=dict(autorange="reversed"),
+        xaxis_title="log-odds of attack (0 = 50/50)",
+        title=f"Why: from {sigmoid(b['bias']) * 100:.2g}% for a typical alert to {row['score_model']:.1%} for this one")
+    st.plotly_chart(f, width="stretch")
+
+    at = pd.to_datetime(row["start"], unit="s")
+
+    def mark(fig):
+        fig.add_vrect(x0=t0, x1=learn_end, fillcolor="lightblue", opacity=0.25, line_width=0, layer="below",
+                      annotation_text="learning period", annotation_position="top left")
+        fig.add_vrect(x0=at, x1=at + pd.Timedelta(minutes=30), fillcolor="crimson", opacity=0.5, line_width=0,
+                      layer="below", annotation_text="this alert", annotation_position="top right")
+
+    left, right = st.columns(2)
+    with left:
+        hours = pd.RangeIndex(int(L["t0"] // 3600 * 3600), int(L["t_end"]) + 3600, 3600)
+        h = rh[(rh["scenario"] == sc4) & (rh["rule_id"] == row["rule_id"])].set_index("hour")["n"]
+        h = h.reindex(hours, fill_value=0)
+        learn = h[h.index < L["learn_end"]]
+        f = go.Figure(go.Bar(x=pd.to_datetime(h.index, unit="s"), y=h.to_numpy(), marker_color="#e0e0e0",
+                             marker_line_width=0, name="alerts / hour"))
+        mark(f)
+        f.add_hline(y=learn.quantile(0.95), line_dash="dot", line_color="deepskyblue",
+                    annotation_text="baseline: 95th pct of hourly count")
+        f.update_layout(height=340, margin=dict(l=10, r=10, t=50, b=10), showlegend=False, bargap=0,
+                        title="This rule over time (alerts per hour)")
+        st.plotly_chart(f, width="stretch")
+        st.caption(f"**{row['rule_desc']}** — during learning: {learn.mean():.1f} alerts/hour, active in "
+                   f"{(learn > 0).mean():.0%} of hours. In the hour of this alert: "
+                   f"{int(h.get(int(row['start'] // 3600 * 3600), 0)):,} alerts.")
+    with right:
+        n = ns[ns["scenario"] == sc4]
+        nl = n[n["bucket"] < L["learn_end"]]
+        f = go.Figure(go.Scatter(x=pd.to_datetime(n["bucket"], unit="s"), y=n["rare_rules"], mode="lines",
+                                 line=dict(color="#e0e0e0", width=1), name="rarely-seen detections / 10 min"))
+        mark(f)
+        f.add_hline(y=nl["rare_rules"].quantile(0.95), line_dash="dot", line_color="deepskyblue",
+                    annotation_text="baseline: 95th pct")
+        f.update_layout(height=340, margin=dict(l=10, r=10, t=50, b=10), showlegend=False,
+                        title="Whole network: rarely-seen detections per 10 min")
+        st.plotly_chart(f, width="stretch")
+        st.caption(f"The model's strongest signal. During learning: median {nl['rare_rules'].median():.0f}, "
+                   f"95th pct {nl['rare_rules'].quantile(0.95):.0f} per 10 min.")
+
+    st.subheader("Raw evidence")
+    reasons = json.loads(row["reasons"] or "[]")
+    st.markdown("\n".join(f"- {r['text']}" for r in reasons))
+    raw = next((str(v) for v in (row["sample_log"], row["sample_url"]) if pd.notna(v) and str(v)), "")
+    st.code(raw[:1500] or "(no raw log line)", language=None, wrap_lines=True)
+    with st.expander("Ground truth for this alert (judges' view)"):
+        phase = row["phase"] if pd.notna(row["phase"]) else "—"
+        st.write(f"label: **{'attack' if row['label'] else 'benign'}** · phase: {phase} · "
+                 f"attack share of its raw alerts: {row['attack_share']:.0%}")
+
+
+with tab_why:
+    why_view()
 
 # ------------------------------------------------------------------ triage
 with tab_triage:
