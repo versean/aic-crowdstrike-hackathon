@@ -31,7 +31,8 @@ pio.templates["alertlens"] = go.layout.Template(layout=dict(
     title=dict(font=dict(size=13, color="#f4f7f5", family="Space Grotesk, Inter, sans-serif"), x=0, xanchor="left"),
     xaxis=dict(gridcolor=LINE, zerolinecolor=LINE, linecolor=LINE),
     yaxis=dict(gridcolor=LINE, zerolinecolor=LINE, linecolor=LINE),
-    colorway=[RED, BLUE, AMBER, GRAY], hoverlabel=dict(bgcolor="#111111", bordercolor=LINE)))
+    colorway=[RED, BLUE, AMBER, GRAY], hoverlabel=dict(bgcolor="#1e1e1e", bordercolor=RED,
+                                                       font=dict(color="#ffffff", size=13, family="Inter, sans-serif"))))
 pio.templates.default = "alertlens"
 
 st.markdown("""
@@ -47,6 +48,12 @@ st.markdown("""
 [data-testid="stMetric"] {background:var(--panel) !important; border-top:1px solid var(--line) !important;}
 [data-testid="stMetric"]:hover, div[data-testid="stPlotlyChart"]:hover {transform:none; box-shadow:none;}
 .status-chip { background:transparent; }
+[data-testid="stChatInput"] {border:1.5px solid var(--accent) !important; border-radius:10px !important;
+  background:#141414 !important; box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent) !important;}
+[data-testid="stChatInput"]:focus-within {box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent) !important;}
+[data-testid="stChatInput"] textarea {color:#fff !important; font-size:.95rem !important;}
+[data-testid="stChatInput"] textarea::placeholder {color:#b5b5b5 !important; opacity:1 !important;}
+[data-testid="stChatInput"] button {background:var(--accent) !important; color:#fff !important; border-radius:7px !important;}
 #MainMenu, footer, [data-testid="stDecoration"] {visibility: hidden;}
 .chip {display: inline-block; padding: 2px 10px; border-radius: 999px; font: 600 .62rem 'IBM Plex Mono', monospace;
        letter-spacing: .08em; vertical-align: middle; border: 1px solid currentColor;}
@@ -415,7 +422,7 @@ def why_view():
     st.markdown("\n".join(f"- {r['text']}" for r in reasons))
     raw = next((str(v) for v in (row["sample_log"], row["sample_url"]) if pd.notna(v) and str(v)), "")
     st.code(raw[:1500] or "(no raw log line)", language=None, wrap_lines=True)
-    with st.expander("Ground truth for this alert (judges' view)"):
+    with st.expander("Ground truth for this alert (evaluation only)"):
         phase = row["phase"] if pd.notna(row["phase"]) else "–"
         st.write(f"label: **{'attack' if row['label'] else 'benign'}** · phase: {phase} · "
                  f"attack share of its raw alerts: {row['attack_share']:.0%}")
@@ -452,7 +459,7 @@ if page == "Alert queue":
     if sup and b2.button(f"Clear {len(sup)} suppressions"):
         sup.clear()
         st.rerun()
-    with st.expander("Ground truth for this queue (judges' view)"):
+    with st.expander("Ground truth for this queue (evaluation only)"):
         top = meta[meta["scenario"] == net]
         top = top[~np.array([(r, h) in sup for r, h in zip(top["rule_id"], top["host"])], dtype=bool)]
         top = top.sort_values("score_model", ascending=False).head(show_k)
@@ -466,7 +473,7 @@ if page == "Threat hunt":
 
 # ------------------------------------------------------------------ ground truth
 if page == "Ground truth":
-    page_heading("EVALUATE", "Ground truth.", "Model risk over time against the labeled attack phases (the judges' answer key).")
+    page_heading("EVALUATE", "Ground truth.", "Model risk over time against the labeled attack phases. The model never sees these labels.")
     lab = labels[labels["scenario"] == net].assign(
         s=lambda d: pd.to_datetime(d["start"], unit="s"), e=lambda d: pd.to_datetime(d["end"], unit="s"))
     mm = meta[(meta["scenario"] == net) & (meta["score_model"] >= 0.05)]

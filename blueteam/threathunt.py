@@ -237,7 +237,7 @@ def build_3d(df: pd.DataFrame, max_normal: int, selected: pd.Series | None = Non
 
     axis_style = dict(backgroundcolor="rgba(0,0,0,0)", gridcolor="#29363b", showbackground=False)
     fig.update_layout(
-        hoverlabel=dict(font_size=11, align="left", bgcolor="#172025"),
+        hoverlabel=dict(font=dict(size=12, color="#ffffff"), align="left", bgcolor="#1e1e1e", bordercolor="#ff4964"),
         template="plotly_dark", height=520,
         title=dict(text="<b>3D Entity Behavior Mapping</b><br><sup>Each dot = one IP in one hour · size and color = risk · axes are log scale</sup>", x=0, xanchor="left"),
         margin=dict(l=0, r=0, b=0, t=75), legend=dict(orientation="h", y=-0.02),
